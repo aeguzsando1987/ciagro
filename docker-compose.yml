@@ -1,0 +1,64 @@
+# docker-compose.yml — CIAgro Alpha
+# 3 servicios: PostGIS (BD geoespacial), Redis (broker Celery), Web (Django)
+
+services:
+  # -----------------------------------------------
+  # BD: PostgreSQL + PostGIS
+  # Imagen específica de PostGIS (NO postgres genérico).
+  # Incluye extensiones GEOS, PROJ, GDAL precompiladas.
+  # -----------------------------------------------
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: ciagro_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ciagro_db}
+      POSTGRES_USER: ${POSTGRES_USER:-ciagro_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ciagro_pass}
+    ports:
+      - "5433:5432"   # 5433 externo para no chocar con PostgreSQL local
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ciagro_user}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # -----------------------------------------------
+  # Redis: Broker de mensajes para Celery
+  # neceario para cargas masivas de 60k+ puntos
+  # para no bloquear el servidor HTTP.
+  # -----------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: ciagro_redis
+    ports:
+      - "6380:6379"   # 6380 externo para no chocar con Redis local
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # -----------------------------------------------
+  # Web: Django + GeoDjango
+  # Depende de db y redis para arrancar.
+  # -----------------------------------------------
+  web:
+    build: .
+    container_name: ciagro_web
+    command: python manage.py runserver 0.0.0.0:8500
+    volumes:
+      - .:/app    # Hot reload: cambios locales se reflejan sin rebuild
+    ports:
+      - "8500:8500"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
