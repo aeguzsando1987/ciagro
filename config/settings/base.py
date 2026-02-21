@@ -2,7 +2,9 @@
 # Configuración común a todos los entornos (dev, prod).
 # Aquí viven las apps instaladas, middleware, templates y validaciones.
 
+from datetime import timedelta
 from pathlib import Path
+
 from decouple import config
 
 # BASE_DIR apunta a CIAgro_alpha/ (2 niveles arriba de settings/)
@@ -23,10 +25,11 @@ DJANGO_APPS = [
 ]
 
 THIRD_PARTY_APPS = [
-    "rest_framework",          # Django REST Framework
-    "rest_framework_gis",      # Serialización GeoJSON
-    "django_filters",          # Filtrado en API
-    "import_export",           # Importación/exportación CSV, XLSX
+    "rest_framework",                              # Django REST Framework
+    "rest_framework_gis",                          # Serialización GeoJSON
+    "rest_framework_simplejwt.token_blacklist",    # Logout real: invalida refresh tokens
+    "django_filters",                              # Filtrado en API
+    "import_export",                               # Importación/exportación CSV, XLSX
 ]
 
 LOCAL_APPS = [
@@ -111,6 +114,22 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 25,
+}
+
+
+# --- JWT ---
+# ACCESS_TOKEN: vida corta (5 min) — el cliente lo usa en cada request
+# REFRESH_TOKEN: vida larga (7 dias) — solo para obtener un nuevo access token
+# ROTATE_REFRESH_TOKENS: cada refresh emite un nuevo refresh token (mas seguro)
+# BLACKLIST_AFTER_ROTATION: el refresh token anterior queda invalidado
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "AUTH_HEADER_TYPES": ("Bearer",),
+    "USER_ID_FIELD": "id",
+    "USER_ID_CLAIM": "user_id",
 }
 
 # --- Celery ---
