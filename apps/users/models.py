@@ -23,6 +23,7 @@ class User(AbstractUser):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_ACTIVE)
+    requires_password_change = models.BooleanField(default=False)
     user_role = models.ForeignKey(
         "UserRole",
         null=True,

@@ -6,7 +6,9 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from apps.users.serializers import CIAgroTokenObtainPairSerializer
+from apps.users.serializers import AdminRegisterSerializer, PublicRegisterSerializer, CIAgroTokenObtainPairSerializer
+from apps.users.permissions import IsSuperAdmin
+
 
 
 class LoginView(TokenObtainPairView):
@@ -67,9 +69,41 @@ class ChangePasswordView(APIView):
             )
 
         user.set_password(new_password)
+        user.requires_password_change = False
         user.save()
         update_session_auth_hash(request, user)
         return Response(
             {"detail": "Contrasena actualizada correctamente."},
             status=status.HTTP_200_OK,
+        )
+
+
+class AdminRegisterView(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request):
+        serializer = AdminRegisterSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            return Response(
+                {"detail": "Usuario creado exitosamente.", "username": user.username},
+                status=status.HTTP_201_CREATED,
+            )
+        return Response(
+            serializer.errors, status=status.HTTP_400_BAD_REQUEST
+            )
+        
+class PublicRegisterView(APIView):
+    permission_classes = [permissions.AllowAny]
+    
+    def post(self, request):
+        serializer = PublicRegisterSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            return Response(
+                {"detail": "Usuario creado exitosamente.", "username": user.username},
+                status=status.HTTP_201_CREATED,
+            )
+        return Response(
+            serializer.errors, status=status.HTTP_400_BAD_REQUEST
         )
