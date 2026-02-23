@@ -94,3 +94,38 @@ class PublicRegisterSerializer(serializers.Serializer):
                 phone=validated_data.get("phone"),
             )
         return user
+    
+    
+# Serializers para consulta y perfil
+
+class UserRoleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserRole
+        fields = ["id", "role_name", "level"]
+        
+class WorkRoleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WorkRole
+        fields = ["id", "work_name", "activity_description"]
+        
+class IndividualSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Individual
+        fields = [
+            "first_name", "last_name", "phone", "personal_email",
+            "address_line_1", "address_line_2", "city", "postal_code",
+            "photo_url"
+            ]
+        
+class UserDetailSerializer(serializers.ModelSerializer):
+    user_role = UserRoleSerializer(read_only=True)
+    individual = IndividualSerializer(read_only=True)
+    
+    class Meta:
+        model = User
+        fields = [
+            "id", "username", "email", "status",
+            "user_role", "requires_password_change",
+            "is_active", "individual",
+        ]
+        read_only_fields = fields

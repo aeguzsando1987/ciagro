@@ -2,7 +2,17 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
-from apps.users.views import AdminRegisterView, PublicRegisterView ,ChangePasswordView, LoginView, LogoutView
+from apps.users.views import (
+    AdminRegisterView, 
+    PublicRegisterView,
+    ChangePasswordView, 
+    LoginView, 
+    LogoutView,
+    UserRoleListView,
+    WorkRoleListView,
+    UserListView,
+    UserMeView,
+    )
 
 urlpatterns = [
     # Login: recibe username+password, retorna access+refresh tokens
@@ -17,4 +27,9 @@ urlpatterns = [
     path("auth/register/", AdminRegisterView.as_view(), name="auth_admin_register"),
     # Registro de usuario
     path("auth/signup/", PublicRegisterView.as_view(), name="auth_public_register"),
+    # Listado de usuarios y roles
+    path("users/", UserListView.as_view(), name="user_list"),
+    path("users/me/", UserMeView.as_view(), name="user_me"),
+    path("users/roles/", UserRoleListView.as_view(), name="user_role_list"),
+    path("users/work-roles/", WorkRoleListView.as_view(), name="work_role_list"),    
 ]

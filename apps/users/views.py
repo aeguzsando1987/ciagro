@@ -1,13 +1,23 @@
 # apps/users/views.py
 from django.contrib.auth import update_session_auth_hash
-from rest_framework import permissions, status
+from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from apps.users.serializers import AdminRegisterSerializer, PublicRegisterSerializer, CIAgroTokenObtainPairSerializer
+from apps.users.models import Individual, User, UserRole, WorkRole
+from apps.users.serializers import (
+    AdminRegisterSerializer,
+    PublicRegisterSerializer,
+    CIAgroTokenObtainPairSerializer,
+    UserRoleSerializer,
+    WorkRoleSerializer,
+    IndividualSerializer,
+    UserDetailSerializer,
+)
 from apps.users.permissions import IsSuperAdmin
+
 
 
 
@@ -107,3 +117,60 @@ class PublicRegisterView(APIView):
         return Response(
             serializer.errors, status=status.HTTP_400_BAD_REQUEST
         )
+        
+        
+class UserRoleListView(generics.ListAPIView):
+    """
+    GET /api/v1/users/roles/
+    Lista todos los roles de acceso. Usado para poblar dropdowns en el frontend.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = UserRole.objects.all().order_by("level")
+    serializer_class = UserRoleSerializer
+    
+    
+class WorkRoleListView(generics.ListAPIView):
+    """
+    GET /api/v1/users/work-roles/
+    Lista todos los roles laborales disponibles.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = WorkRole.objects.all().order_by("work_name")
+    serializer_class = WorkRoleSerializer
+    
+
+class UserListView(generics.ListAPIView):
+    """
+    GET /api/v1/users/
+    Lista todos los usuarios. Solo SuperAdmin.
+    """
+    permission_classes = [IsSuperAdmin]
+    queryset = User.objects.select_related("user_role", "individual").all()
+    serializer_class = UserDetailSerializer
+    
+    
+class UserMeView(generics.RetrieveUpdateAPIView):
+    """
+    GET   /api/v1/users/me/ — Perfil del usuario autenticado.
+    PATCH /api/v1/users/me/ — Actualiza campos de Individual (perfil personal).
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_object(self):
+        return self.request.user
+    
+    def get_serializer_class(self):
+        if self.request.method in ("PUT", "PATCH"):
+            return IndividualSerializer
+        return UserDetailSerializer
+    
+    def update(self, request, *args, **kwargs):
+        individual = request.user.individual
+        serializer = IndividualSerializer(
+            individual,
+            data=request.data,
+            partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
