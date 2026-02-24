@@ -1,6 +1,7 @@
 # apps/users/serializers.py
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework import serializers
+from rest_framework.validators import UniqueValidator
 from django.db import transaction
 from apps.users.models import Individual, User, UserRole, WorkRole
 
@@ -36,8 +37,13 @@ class CIAgroTokenObtainPairSerializer(TokenObtainPairSerializer):
     
 class AdminRegisterSerializer(serializers.Serializer):
     # Campos de usuario
-    username = serializers.CharField(max_length=20)
-    email = serializers.EmailField()
+    username = serializers.CharField(
+        max_length=20,
+        validators=[UniqueValidator(queryset=User.objects.all())]
+    )
+    email = serializers.EmailField(
+        validators=[UniqueValidator(queryset=User.objects.all())]
+    )
     password = serializers.CharField(write_only=True) # No se devuelve en la respuesta
     user_role = serializers.PrimaryKeyRelatedField(
         queryset=UserRole.objects.all(),
@@ -73,8 +79,13 @@ class AdminRegisterSerializer(serializers.Serializer):
     
     
 class PublicRegisterSerializer(serializers.Serializer):
-    username = serializers.CharField(max_length=50)
-    email = serializers.EmailField()
+    username = serializers.CharField(
+        max_length=50,
+        validators=[UniqueValidator(queryset=User.objects.all())]
+    )
+    email = serializers.EmailField(
+        validators=[UniqueValidator(queryset=User.objects.all())]
+    )
     password = serializers.CharField(write_only=True)
     first_name = serializers.CharField()
     last_name = serializers.CharField()

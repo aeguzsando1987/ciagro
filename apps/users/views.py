@@ -145,7 +145,7 @@ class UserListView(generics.ListAPIView):
     Lista todos los usuarios. Solo SuperAdmin.
     """
     permission_classes = [IsSuperAdmin]
-    queryset = User.objects.select_related("user_role", "individual").all()
+    queryset = User.objects.select_related("user_role", "individual").order_by("username")
     serializer_class = UserDetailSerializer
     
     
