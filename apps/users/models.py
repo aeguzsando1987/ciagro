@@ -112,8 +112,20 @@ class Individual(BaseAuditModel):
     address_line_1 = models.CharField(max_length=100, null=True, blank=True)
     address_line_2 = models.CharField(max_length=100, null=True, blank=True)
     city = models.CharField(max_length=50, null=True, blank=True)
-    # state FK Cuando se implemente la parte de goeografía basica
-    # country FK Cuando se implemente la parte de goeografía basica
+    state = models.ForeignKey(
+        "geography.State",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="individuals"
+    )
+    country = models.ForeignKey(
+        "geography.Country",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="individuals"
+    )
     postal_code = models.CharField(max_length=10, null=True, blank=True)
 
     def __str__(self):
