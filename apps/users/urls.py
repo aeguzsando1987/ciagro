@@ -3,16 +3,19 @@ from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from apps.users.views import (
-    AdminRegisterView, 
+    AdminRegisterView,
     PublicRegisterView,
-    ChangePasswordView, 
-    LoginView, 
+    ChangePasswordView,
+    LoginView,
     LogoutView,
     UserRoleListView,
     WorkRoleListView,
     UserListView,
+    UserDestroyView,
     UserMeView,
     )
+
+app_name = "users"
 
 urlpatterns = [
     # Login: recibe username+password, retorna access+refresh tokens
@@ -31,5 +34,6 @@ urlpatterns = [
     path("users/", UserListView.as_view(), name="user_list"),
     path("users/me/", UserMeView.as_view(), name="user_me"),
     path("users/roles/", UserRoleListView.as_view(), name="user_role_list"),
-    path("users/work-roles/", WorkRoleListView.as_view(), name="work_role_list"),    
+    path("users/work-roles/", WorkRoleListView.as_view(), name="work_role_list"),
+    path("users/<uuid:pk>/", UserDestroyView.as_view(), name="user_destroy"),
 ]

@@ -31,6 +31,15 @@ class User(AbstractUser):
         on_delete=models.SET_NULL,
         related_name="users",
     )
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        'self',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="deleted_users",
+    )
 
     def __str__(self):
         return self.username
@@ -133,3 +142,29 @@ class Individual(BaseAuditModel):
 
     class Meta:
         db_table = "individuals"
+        
+        
+class UserAssignment(models.Model):
+    """
+    Tabla de relaciones entre User y AgroUnit.
+    Tabla pivote que permite asignar un usuario con una agrounidad. De esta manera el usuario puede ser responsable de una agrounidad
+    y solo puede tener acceso a datos e informacion de la misma.
+    """
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="assignments",
+    )
+    agro_unit = models.ForeignKey(
+        "organizations.AgroUnit",
+        on_delete=models.CASCADE,
+        related_name="user_assignments",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "user_assignments"
+        unique_together = [["user", "agro_unit"]]
+        
+    def __str__(self):
+        return f"{self.user.username} - {self.agro_unit.code}"

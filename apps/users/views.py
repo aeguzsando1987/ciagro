@@ -17,6 +17,7 @@ from apps.users.serializers import (
     UserDetailSerializer,
 )
 from apps.users.permissions import IsSuperAdmin
+from apps.core.mixins import SoftDeleteMixin
 
 
 
@@ -142,11 +143,22 @@ class WorkRoleListView(generics.ListAPIView):
 class UserListView(generics.ListAPIView):
     """
     GET /api/v1/users/
-    Lista todos los usuarios. Solo SuperAdmin.
+    Lista todos los usuarios activos. Solo SuperAdmin.
     """
     permission_classes = [IsSuperAdmin]
-    queryset = User.objects.select_related("user_role", "individual").order_by("username")
+    queryset = User.objects.filter(is_deleted=False).select_related("user_role", "individual").order_by("username")
     serializer_class = UserDetailSerializer
+
+
+class UserDestroyView(SoftDeleteMixin, generics.DestroyAPIView):
+    """
+    DELETE /api/v1/users/<uuid:pk>/
+    Soft delete de usuario. Solo SuperAdmin.
+    Marca is_deleted=True, registra deleted_at y deleted_by.
+    No elimina el registro de la BD.
+    """
+    permission_classes = [IsSuperAdmin]
+    queryset = User.objects.filter(is_deleted=False)
     
     
 class UserMeView(generics.RetrieveUpdateAPIView):
