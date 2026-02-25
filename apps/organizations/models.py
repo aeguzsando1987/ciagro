@@ -65,7 +65,13 @@ class AgroUnit(BaseAuditModel):
     location_url = models.URLField(max_length=500, blank=True)
     country = models.ForeignKey("geography.Country", null=True, blank=True, on_delete=models.SET_NULL, related_name="agro_units")
     state = models.ForeignKey("geography.State", null=True, blank=True, on_delete=models.SET_NULL, related_name="agro_units")
-    
+    default_contact = models.ForeignKey(
+        "organizations.Contact",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="primary_for_units"
+    )
+
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
     additional_params = models.JSONField(default=dict, blank=True)
     attachments_url = models.JSONField(default=list, blank=True)
@@ -89,3 +95,41 @@ class AgroUnit(BaseAuditModel):
         ordering = ["commercial_name"]
     
 
+class Contact(BaseAuditModel):
+    name  = models.CharField(max_length=200)
+    address_line_1 = models.CharField(max_length=255, blank=True)
+    address_line_2 = models.CharField(max_length=255, blank=True)
+    phone = models.CharField(max_length=20, blank=True)
+    email = models.EmailField(blank=True)
+    slug = models.SlugField(max_length=255, unique=True, blank=True)
+
+    def __str__(self):
+        return f"{self.name} | Email: {self.email} - Tel: {self.phone}"
+    
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base_slug = slugify(self.name)
+            slug, counter = base_slug, 1
+            while Contact.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                slug = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
+        
+    class Meta:
+        db_table = "contacts"
+        ordering = ["name"]
+        
+
+class ContactAssignment(models.Model):
+    contact = models.ForeignKey(Contact, on_delete=models.CASCADE, related_name="assignments")
+    agro_unit = models.ForeignKey(AgroUnit, on_delete=models.CASCADE, related_name="contact_assignments")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.contact.name} - {self.agro_unit.commercial_name}"
+
+    class Meta:
+        db_table = "contact_assignments"
+        unique_together = [["contact", "agro_unit"]]
+    

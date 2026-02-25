@@ -8,6 +8,10 @@ from apps.organizations.views import (
     AgroUnitDetailView,
     AgroUnitUpdateView,
     AgroUnitDestroyView,
+    ContactListView,
+    ContactCreateView,
+    ContactDetailView,
+    ContactAssignmentCreateView
 )
 
 app_name = "organizations"
@@ -21,4 +25,8 @@ urlpatterns = [
     path("<uuid:pk>/", AgroUnitDetailView.as_view(), name="agro_unit_detail"),
     path("<uuid:pk>/update/", AgroUnitUpdateView.as_view(), name="agro_unit_update"),
     path("<uuid:pk>/delete/", AgroUnitDestroyView.as_view(), name="agro_unit_delete"),
+    path("contacts/", ContactListView.as_view(), name="contact_list"),
+    path("contacts/create/", ContactCreateView.as_view(), name="contact_create"),
+    path("contacts/<uuid:pk>/", ContactDetailView.as_view(), name="contact_detail"),
+    path("contacts/assign/", ContactAssignmentCreateView.as_view(), name="contact_assign"),
 ]

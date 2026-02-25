@@ -22,5 +22,5 @@ urlpatterns = [
     path("api/v1/", include("apps.users.urls")),
     path("api/v1/geography/", include("apps.geography.urls")),
     path("api/v1/organizations/", include("apps.organizations.urls")),
-    
+    path("api/v1/geo_assets/", include("apps.geo_assets.urls")),
 ]
