@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
-from apps.users.models import UserRole, User, WorkRole, Individual
+from apps.users.models import UserRole, User, WorkRole, Individual, UserAssignment
 
 @admin.register(UserRole) # Decorador para registrar el modelo
 class UserRoleAdmin(admin.ModelAdmin):
@@ -19,6 +19,15 @@ class IndividualInline(admin.TabularInline):
     extra = 0
     fields = ["first_name", "last_name", "phone", "work_role"]
     
+@admin.register(UserAssignment)
+class UserAssignmentAdmin(admin.ModelAdmin):
+    list_display = ["user", "agro_unit", "created_at"]
+    list_filter = ["agro_unit"]
+    search_fields = ["user__username", "user__email",
+                     "agro_unit__code", "agro_unit__commercial_name"]
+    ordering = ["agro_unit"]
+
+
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
     inlines = [IndividualInline]

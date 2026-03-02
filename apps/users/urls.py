@@ -13,6 +13,9 @@ from apps.users.views import (
     UserListView,
     UserDestroyView,
     UserMeView,
+    UserAssignmentListView,
+    UserAssignmentCreateView,
+    UserAssignmentDestroyView,
     )
 
 app_name = "users"
@@ -36,4 +39,8 @@ urlpatterns = [
     path("users/roles/", UserRoleListView.as_view(), name="user_role_list"),
     path("users/work-roles/", WorkRoleListView.as_view(), name="work_role_list"),
     path("users/<uuid:pk>/", UserDestroyView.as_view(), name="user_destroy"),
+    # Asignaciones user ↔ agro_unit
+    path("users/assignments/", UserAssignmentListView.as_view(), name="user_assignment_list"),
+    path("users/assignments/create/", UserAssignmentCreateView.as_view(), name="user_assignment_create"),
+    path("users/assignments/<int:pk>/delete/", UserAssignmentDestroyView.as_view(), name="user_assignment_destroy"),
 ]

@@ -1,12 +1,12 @@
 # CIAgro Alpha
 
-API REST para gestión agrícola. Backend construido con Django + DRF + GeoDjango sobre PostgreSQL/PostGIS.
+API REST para gestión agrícola en desarrollo. Por ahora solo se esta constryendo el backend utilizando  Django + DRF + GeoDjango sobre PostgreSQL/PostGIS, dado que muhcos datos son georeferenciados.
 
-> **Estado:** Fase 1 en progreso — Núcleo, identidad y catálogos base.
+> **Estado actual:** Fase 2 completada — Organizaciones y activos geográficos. Próximo: Fase 3 (operación en campo y motor de datos).
 
 ---
 
-## Stack
+## Stack actual
 
 | Componente | Tecnología |
 |---|---|
@@ -26,6 +26,8 @@ API REST para gestión agrícola. Backend construido con Django + DRF + GeoDjang
 - PostgreSQL con extensión PostGIS
 - Conda (solo en Windows, para GDAL)
 
+***Nota:** GDAL permite leer/escritura de formatos geoespaciales (Shapefile, GeoJSON, etc.)
+
 ---
 
 ## Instalación
@@ -40,10 +42,10 @@ python -m venv venv
 venv\Scripts\activate        # Windows
 # source venv/bin/activate   # Linux/macOS
 
-# Instalar dependencias
+# Instalar las dependencias
 pip install -r requirements.txt
 
-# GDAL en Windows (requiere conda)
+# instalar GDAL en Windows (requiere conda)
 conda install -c conda-forge gdal
 ```
 
@@ -79,7 +81,7 @@ ALTER USER ciagro_user SUPERUSER;  -- requerido para PostGIS en tests
 
 ---
 
-## Puesta en marcha
+## Para desarrollo y pruebas
 
 ```bash
 # Verificar configuración
@@ -94,7 +96,7 @@ python manage.py seed_geography
 # Crear superusuario
 python manage.py createsuperuser
 
-# Servidor de desarrollo
+# Servidor de desarrollo local con puerto por defecto de django
 python manage.py runserver 8500
 ```
 
@@ -104,8 +106,7 @@ La API queda disponible en `http://localhost:8500/api/v1/`.
 
 ## Seed data
 
-El comando `seed_geography` carga países y estados/provincias desde archivos JSON en `apps/geography/fixtures/`.
-
+Con el comando `seed_geography` se pueden cargar países y estados/provincias desde archivos JSON en `apps/geography/fixtures/`. El contenido del archivo `countries.json` es el mismo que el de [ISO 3166-2](https://en.wikipedia.org/wiki/ISO_3166-2:MX). El archivo `states.json` esta basado en [ISO 3166-2](https://en.wikipedia.org/wiki/ISO_3166-2:MX). La carga de estados/provincias esta limitada a a Mexico, Estados Unidos, España, Colombia, Argentina, Chile, Canadá y Uruguay. Edite el archivo para agregar estados correspondientes a su pais.
 ```bash
 # Carga completa (países + estados)
 python manage.py seed_geography
@@ -132,7 +133,7 @@ python manage.py seed_geography --reset
 | `countries.json` | 193 países — nombres en español, iso_2, iso_3 |
 | `states.json` | 223 entidades — estados/provincias de MX, US, ES, CO, AR, CL, CA, UY |
 
-El comando es **idempotente**: re-ejecutarlo no crea duplicados.
+El comando es **idempotente**: re-ejecutarlo va a crear datos duplicados en la base de datos.
 
 ---
 
@@ -166,6 +167,51 @@ El comando es **idempotente**: re-ejecutarlo no crea duplicados.
 | GET | `/api/v1/geography/countries/` | Listar países | Autenticado |
 | GET | `/api/v1/geography/states/` | Listar estados | Autenticado |
 | GET | `/api/v1/geography/states/?country=MX` | Filtrar estados por país (iso_2) | Autenticado |
+
+### Organizaciones
+
+| Método | URL | Descripción | Permiso |
+|--------|-----|-------------|---------|
+| GET | `/api/v1/organizations/` | Listar AgroUnits (scope filter) | Autenticado |
+| POST | `/api/v1/organizations/create/` | Crear AgroUnit | SuperAdmin |
+| GET | `/api/v1/organizations/<uuid>/` | Detalle AgroUnit | Autenticado |
+| PATCH | `/api/v1/organizations/<uuid>/update/` | Actualizar AgroUnit | SuperAdmin |
+| DELETE | `/api/v1/organizations/<uuid>/delete/` | Soft delete AgroUnit | SuperAdmin |
+| GET | `/api/v1/organizations/agro_sectors/` | Listar sectores agrícolas | Autenticado |
+| POST | `/api/v1/organizations/agro_sectors/create/` | Crear sector | SuperAdmin |
+| GET | `/api/v1/organizations/agro_sectors/<id>/` | Detalle sector | Autenticado |
+| GET | `/api/v1/organizations/contacts/` | Listar contactos | Autenticado |
+| POST | `/api/v1/organizations/contacts/create/` | Crear contacto | Autenticado |
+| GET | `/api/v1/organizations/contacts/<uuid>/` | Detalle contacto | Autenticado |
+| POST | `/api/v1/organizations/contacts/assign/` | Asignar contacto a AgroUnit | Autenticado |
+
+> **Multi-tenancy:** usuarios sin rol SuperAdmin solo ven las AgroUnits que tienen asignadas vía `UserAssignment`.
+
+### Activos geográficos
+
+> **Formato GeoJSON:** los endpoints de Ranch y Plot producen y consumen GeoJSON Feature.
+> POST requiere: `{"type": "Feature", "geometry": null, "properties": {...}}`
+> Las respuestas de lista son FeatureCollection paginado: `{"results": {"type": "FeatureCollection", "features": [...]}, "count": N, ...}`
+
+| Método | URL | Descripción | Permiso |
+|--------|-----|-------------|---------|
+| GET | `/api/v1/geo_assets/ranches/` | Listar ranchos (scope filter, GeoJSON) | Autenticado |
+| POST | `/api/v1/geo_assets/ranches/create/` | Crear rancho | SuperAdmin |
+| GET | `/api/v1/geo_assets/ranches/<uuid>/` | Detalle rancho (GeoJSON) | Autenticado |
+| PATCH | `/api/v1/geo_assets/ranches/<uuid>/update/` | Actualizar rancho | SuperAdmin |
+| DELETE | `/api/v1/geo_assets/ranches/<uuid>/delete/` | Soft delete rancho | SuperAdmin |
+| GET | `/api/v1/geo_assets/plots/` | Listar parcelas (scope filter, GeoJSON) | Autenticado |
+| POST | `/api/v1/geo_assets/plots/create/` | Crear parcela | SuperAdmin |
+| GET | `/api/v1/geo_assets/plots/<uuid>/` | Detalle parcela (GeoJSON) | Autenticado |
+| PATCH | `/api/v1/geo_assets/plots/<uuid>/update/` | Actualizar parcela | SuperAdmin |
+| DELETE | `/api/v1/geo_assets/plots/<uuid>/delete/` | Soft delete parcela | SuperAdmin |
+| GET | `/api/v1/geo_assets/ranch-partners/` | Listar relaciones rancho-socio | Autenticado |
+| GET | `/api/v1/geo_assets/ranch-partners/?ranch=<uuid>` | Filtrar por rancho | Autenticado |
+| POST | `/api/v1/geo_assets/ranch-partners/create/` | Crear relación (valida tipo) | SuperAdmin |
+| DELETE | `/api/v1/geo_assets/ranch-partners/<id>/delete/` | Eliminar relación (hard delete) | SuperAdmin |
+
+> **Scope filter geo_assets:** Ranch filtra por `producer_id__in`; Plot filtra por `ranch__producer_id__in`.
+> **RanchPartner:** pivote puro sin soft delete. Valida coherencia entre `relation_type` y `partner.unit_type`.
 
 ### Autenticación por token
 
@@ -203,10 +249,17 @@ CIAgro_alpha/
 ## Tests
 
 ```bash
-python manage.py test apps.users
+# Ejecutar todos los tests
+python manage.py test apps.users apps.geography apps.organizations apps.geo_assets
+
+# Por app
+python manage.py test apps.users          # 25 tests — auth, roles, perfiles, soft delete
+python manage.py test apps.geography      # 32 tests — países, estados, seed data
+python manage.py test apps.organizations  # 15 tests — AgroSector, AgroUnit, scope filter
+python manage.py test apps.geo_assets     # 23 tests — Ranch, RanchScope, Plot, RanchPartner
 ```
 
-17 tests — modelos, autenticación, permisos, flujos de registro y perfil.
+**Total: ~95 tests** cubriendo modelos, permisos, multi-tenancy, scope filter y GeoJSON.
 
 ---
 

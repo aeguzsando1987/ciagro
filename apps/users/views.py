@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from apps.users.models import Individual, User, UserRole, WorkRole
+from apps.users.models import Individual, User, UserRole, WorkRole, UserAssignment
 from apps.users.serializers import (
     AdminRegisterSerializer,
     PublicRegisterSerializer,
@@ -15,6 +15,7 @@ from apps.users.serializers import (
     WorkRoleSerializer,
     IndividualSerializer,
     UserDetailSerializer,
+    UserAssignmentSerializer,
 )
 from apps.users.permissions import IsSuperAdmin
 from apps.core.mixins import SoftDeleteMixin
@@ -161,6 +162,47 @@ class UserDestroyView(SoftDeleteMixin, generics.DestroyAPIView):
     queryset = User.objects.filter(is_deleted=False)
     
     
+class UserAssignmentListView(generics.ListAPIView):
+    """
+    GET /api/v1/users/assignments/
+    Lista asignaciones. Filtros opcionales: ?user=<uuid> y ?agro_unit=<uuid>.
+    Solo SuperAdmin.
+    """
+    permission_classes = [IsSuperAdmin]
+    serializer_class = UserAssignmentSerializer
+
+    def get_queryset(self):
+        qs = UserAssignment.objects.select_related("user", "agro_unit").order_by("agro_unit")
+        user_id = self.request.query_params.get("user")
+        agro_unit_id = self.request.query_params.get("agro_unit")
+        if user_id:
+            qs = qs.filter(user_id=user_id)
+        if agro_unit_id:
+            qs = qs.filter(agro_unit_id=agro_unit_id)
+        return qs
+
+
+class UserAssignmentCreateView(generics.CreateAPIView):
+    """
+    POST /api/v1/users/assignments/create/
+    Crea una asignación user↔agro_unit.
+    Solo SuperAdmin.
+    """
+    permission_classes = [IsSuperAdmin]
+    queryset = UserAssignment.objects.all()
+    serializer_class = UserAssignmentSerializer
+
+
+class UserAssignmentDestroyView(generics.DestroyAPIView):
+    """
+    DELETE /api/v1/users/assignments/<int:pk>/delete/
+    Elimina una asignación (hard delete — no hay datos de negocio en esta tabla pivote).
+    Solo SuperAdmin.
+    """
+    permission_classes = [IsSuperAdmin]
+    queryset = UserAssignment.objects.all()
+
+
 class UserMeView(generics.RetrieveUpdateAPIView):
     """
     GET   /api/v1/users/me/ — Perfil del usuario autenticado.

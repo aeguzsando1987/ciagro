@@ -3,7 +3,8 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 from django.db import transaction
-from apps.users.models import Individual, User, UserRole, WorkRole
+from apps.users.models import Individual, User, UserRole, WorkRole, UserAssignment
+from apps.organizations.models import AgroUnit
 
 
 class CIAgroTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -131,7 +132,7 @@ class IndividualSerializer(serializers.ModelSerializer):
 class UserDetailSerializer(serializers.ModelSerializer):
     user_role = UserRoleSerializer(read_only=True)
     individual = IndividualSerializer(read_only=True)
-    
+
     class Meta:
         model = User
         fields = [
@@ -140,3 +141,28 @@ class UserDetailSerializer(serializers.ModelSerializer):
             "is_active", "individual",
         ]
         read_only_fields = fields
+
+
+class UserAssignmentSerializer(serializers.ModelSerializer):
+    user_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(is_deleted=False),
+        source="user",
+        write_only=True,
+    )
+    agro_unit_id = serializers.PrimaryKeyRelatedField(
+        queryset=AgroUnit.objects.filter(is_deleted=False),
+        source="agro_unit",
+        write_only=True,
+    )
+    user_username = serializers.CharField(source="user.username", read_only=True)
+    agro_unit_code = serializers.CharField(source="agro_unit.code", read_only=True)
+    agro_unit_name = serializers.CharField(source="agro_unit.commercial_name", read_only=True)
+
+    class Meta:
+        model = UserAssignment
+        fields = [
+            "id", "user_id", "user_username",
+            "agro_unit_id", "agro_unit_code", "agro_unit_name",
+            "created_at",
+        ]
+        read_only_fields = ["id", "created_at"]

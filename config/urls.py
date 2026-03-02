@@ -23,4 +23,6 @@ urlpatterns = [
     path("api/v1/geography/", include("apps.geography.urls")),
     path("api/v1/organizations/", include("apps.organizations.urls")),
     path("api/v1/geo_assets/", include("apps.geo_assets.urls")),
+    path("api/v1/field_ops/", include("apps.field_ops.urls")),
+    path("api/v1/datalayers/", include("apps.datalayers.urls")),
 ]
