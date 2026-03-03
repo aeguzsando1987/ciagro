@@ -124,6 +124,16 @@ class DataLayerHeaderAdmin(admin.ModelAdmin):
         )
 
     # ------------------------------------------------------------------
+    # Post-save: redirigir al importador CSV tras crear un header nuevo
+    # ------------------------------------------------------------------
+
+    def response_add(self, request, obj, post_url_continue=None):
+        """Tras crear un DataLayerHeader, ir directo a la pantalla de importación CSV."""
+        url = reverse("admin:datalayers_datalayerheader_import_csv", args=[obj.pk])
+        self.message_user(request, f"Header creado. Carga el CSV para: {obj}.")
+        return HttpResponseRedirect(url)
+
+    # ------------------------------------------------------------------
     # Métodos de display
     # ------------------------------------------------------------------
 

@@ -7,7 +7,11 @@ from apps.datalayers.models import DataLayer
 
 class CropCatalog(models.Model):
     id = models.AutoField(primary_key=True)
-    name = models.CharField(max_length=200, unique=True)
+    name = models.CharField(
+        max_length=200,
+        unique=True,
+        help_text="Variedad de cultivo (ej: Manzana Verde, Mango Manila, Moringa, Calabacin).",
+    )
     description = models.TextField(null=True, blank=True)
     photo_url = models.URLField(max_length=500, null=True, blank=True)
     additional_params = models.JSONField(default=dict, blank=True)

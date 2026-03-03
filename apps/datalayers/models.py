@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 from django.db import models
 from django.contrib.gis.db.models import PointField
 from django.contrib.postgres.indexes import GinIndex
@@ -10,11 +11,13 @@ class DataLayer(models.Model):
     code = models.CharField(max_length=100, unique=True)
     definition_scheme = models.JSONField(
         default=dict,
-        help_text="Contrato de ingesta: campos obligatorios, tipos y alias para parseo de datos deCSV/sensores."
+        blank=True,
+        help_text="Contrato de ingesta: campos obligatorios, tipos y alias para parseo de datos de CSV/sensores."
     )
     evaluation_scheme = models.JSONField(
         default=dict,
-        help_text="Contrato de  agronomica: ejes kiviat, rangos de colorimetria y preguntas manuales."
+        blank=True,
+        help_text="Contrato agronomico: ejes kiviat, rangos de colorimetria y preguntas manuales."
     )
     attachments_url = models.JSONField(default=list, blank=True)
     description = models.TextField(null=True, blank=True)
@@ -70,6 +73,7 @@ class DataLayerHeader(models.Model):
         help_text="Contrato de datos (definition_scheme) que valida esta importación.",
     )
     import_date = models.DateField(
+        default=date.today,
         verbose_name="Fecha de importación",
         help_text="Fecha en que se realizó o corresponde la importación.",
     )
