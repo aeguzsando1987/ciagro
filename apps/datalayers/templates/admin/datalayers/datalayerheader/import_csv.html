@@ -1,0 +1,66 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">Inicio</a>
+    &rsaquo; <a href="{% url 'admin:datalayers_datalayerheader_changelist' %}">DataLayer Headers</a>
+    &rsaquo; <a href="{{ change_url }}">{{ header }}</a>
+    &rsaquo; Importar CSV
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <h1>Importar puntos CSV</h1>
+
+    <fieldset class="module aligned">
+        <div class="form-row">
+            <div class="field-box">
+                <label>Header:</label>
+                <strong>{{ header }}</strong>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="field-box">
+                <label>DataLayer:</label>
+                <strong>{{ header.datalayer.code }}</strong> — {{ header.datalayer.name }}
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="field-box">
+                <label>Fecha de importación:</label>
+                {{ header.import_date }}
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="field-box">
+                <label>Puntos actuales:</label>
+                {{ header.points.count }}
+            </div>
+        </div>
+    </fieldset>
+
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <fieldset class="module aligned">
+            <h2>Seleccionar archivo</h2>
+            <div class="form-row">
+                <label for="csv_file" class="required">Archivo CSV:</label>
+                <input type="file" name="csv_file" id="csv_file" accept=".csv" required>
+                <p class="help">
+                    Columnas requeridas: <code>lat</code>, <code>lon</code>.<br>
+                    Columnas opcionales: <code>captured_at</code> (ISO 8601).<br>
+                    El resto de columnas se guardará en <code>raw_data</code> y debe
+                    cumplir el <em>definition_scheme</em> del DataLayer.
+                </p>
+            </div>
+        </fieldset>
+
+        <div class="submit-row">
+            <input type="submit" value="Encolar importación" class="default">
+            <a href="{{ change_url }}" style="margin-left: 1em;">Cancelar</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

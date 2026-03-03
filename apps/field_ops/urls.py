@@ -5,7 +5,8 @@ from apps.field_ops.views import (
     PestCatalogListView, PestCatalogCreateView,
     PestCatalogDetailView, PestCatalogUpdateView,
     FieldTaskListView, FieldTaskCreateView,
-    FieldTaskDetailView, FieldTaskUpdateView
+    FieldTaskDetailView, FieldTaskUpdateView,
+    GenerateReportView,
 )
 
 app_name = "field_ops"
@@ -23,5 +24,5 @@ urlpatterns = [
     path("tasks/create/", FieldTaskCreateView.as_view(), name="task-create"),
     path("tasks/<uuid:pk>/", FieldTaskDetailView.as_view(), name="task-detail"),
     path("tasks/<uuid:pk>/update/", FieldTaskUpdateView.as_view(), name="task-update"),
-
+    path("tasks/<uuid:pk>/generate-report/", GenerateReportView.as_view(), name="task-generate-report"),
 ]

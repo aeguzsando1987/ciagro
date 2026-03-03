@@ -41,7 +41,7 @@ class DataLayerHeader(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="datalayer_headers",
-        help_text="Opcional: tarea planificada que originó esta importación.",
+        help_text="Opcional: tarea planificada que contempla la importación.",
     )
     plot = models.ForeignKey(
         "geo_assets.Plot",
@@ -49,27 +49,31 @@ class DataLayerHeader(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="datalayer_headers",
+        verbose_name="Parcela",
         help_text=(
-            "Lote geográfico al que pertenece este conjunto de puntos. "
-            "Si se vincula una task, se hereda automáticamente de task.plot (denormalización)."
+            "Lote geográfico al que pertenece este conjunto de puntos.\n "
+            "NOTA: Si vincula una actividad planificada, se hereda automáticoamente la parcela."
         ),
     )
     crop = models.ForeignKey(
         "field_ops.CropCatalog",
         on_delete=models.PROTECT,
         related_name="datalayer_headers",
-        help_text="Cultivo asociado al momento de la importación.",
+        verbose_name="Cultivo",
+        help_text="Opcional: Cultivo asociado al conjunto de datos.\n NOTA: no es necesario si vincula una task.",
     )
     datalayer = models.ForeignKey(
         DataLayer,
         on_delete=models.PROTECT,
         related_name="headers",
+        verbose_name="Tipo de analisis/ingesta",
         help_text="Contrato de datos (definition_scheme) que valida esta importación.",
     )
     import_date = models.DateField(
+        verbose_name="Fecha de importación",
         help_text="Fecha en que se realizó o corresponde la importación.",
     )
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de creación")
 
     def save(self, *args, **kwargs):
         # Denormalización: si hay task y plot no fue provisto, se hereda de task.plot

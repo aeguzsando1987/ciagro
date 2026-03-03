@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from apps.field_ops.models import CropCatalog, PestCatalog, FieldTask
+from apps.field_ops.models import CropCatalog, PestCatalog, FieldTask, FieldTaskReport, TaskReportIssue
 from apps.datalayers.models import DataLayer
 
 class CropCatalogSerializer(serializers.ModelSerializer):
@@ -28,6 +28,40 @@ class PestCatalogSerializer(serializers.ModelSerializer):
         read_only_fields = ["id"]
         
         
+class TaskReportIssueSerializer(serializers.ModelSerializer):
+    severity_alert_display = serializers.CharField(source="get_severity_alert_display", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+
+    class Meta:
+        model = TaskReportIssue
+        fields = [
+            "id", "report",
+            "issue_title", "description", "agro_activity", "issue_type",
+            "probability", "severity_alert", "severity_alert_display",
+            "expected_solution", "reached_solution",
+            "status", "status_display", "is_ruled",
+            "identification_date", "solution_date", "notes",
+        ]
+        read_only_fields = ["id", "severity_alert_display", "status_display"]
+
+
+class FieldTaskReportSerializer(serializers.ModelSerializer):
+    issues = TaskReportIssueSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = FieldTaskReport
+        fields = [
+            "id", "task", "plot", "evaluator",
+            "summary_data", "report_date",
+            "evaluation_data", "scan_date", "report_score",
+            "main_causes", "summary_1", "summary_2", "conclusion",
+            "internal_comments", "map_url", "attachments_url",
+            "is_valid", "validation_token",
+            "issues",
+        ]
+        read_only_fields = ["id", "summary_data", "report_date", "issues"]
+
+
 class FieldTaskSerializer(serializers.ModelSerializer):
     crop = CropCatalogSerializer(read_only=True)
     datalayer_code = serializers.CharField(source="datalayer.code", read_only=True)
