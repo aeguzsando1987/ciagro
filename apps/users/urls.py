@@ -1,6 +1,7 @@
 # apps/users/urls.py
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
+from drf_spectacular.utils import extend_schema
 
 from apps.users.views import (
     AdminRegisterView,
@@ -17,6 +18,16 @@ from apps.users.views import (
     UserAssignmentCreateView,
     UserAssignmentDestroyView,
     )
+
+# Taggear TokenRefreshView de simplejwt sin crear subclase
+TokenRefreshView = extend_schema(
+    tags=["auth"],
+    summary="Refrescar access token",
+    description=(
+        "Recibe un `refresh` token valido y retorna un nuevo `access` token (y un nuevo `refresh` "
+        "si `ROTATE_REFRESH_TOKENS=True`). El refresh anterior queda en la blacklist."
+    ),
+)(TokenRefreshView)
 
 app_name = "users"
 

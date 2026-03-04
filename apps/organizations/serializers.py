@@ -47,6 +47,15 @@ class AgroUnitSerializer(serializers.ModelSerializer):
             ]
         read_only_fields = ["id", "slug", "created_at", "updated_at"]
 
+    def validate(self, data):
+        country = data.get("country") or (self.instance.country if self.instance else None)
+        state = data.get("state")
+        if state and country and state.country_id != country.id:
+            raise serializers.ValidationError(
+                {"state": "El estado no pertenece al país seleccionado."}
+            )
+        return data
+
 
 class ContactAssignmentSerializer(serializers.ModelSerializer):
     contact = ContactSerializer(read_only=True)

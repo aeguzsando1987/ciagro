@@ -5,6 +5,9 @@ from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework import status as http_status
+from drf_spectacular.utils import extend_schema, OpenApiParameter, inline_serializer
+from drf_spectacular.types import OpenApiTypes
+from rest_framework import serializers as drf_serializers
 from apps.datalayers.models import DataLayer, DataLayerHeader, DataLayerPoints
 from apps.datalayers.serializers import (
     DataLayerSerializer,
@@ -19,24 +22,28 @@ from apps.users.permissions import IsSuperAdmin, IsSupervisor, IsTechnician
 # DataLayer — el contrato/esquema de captura. Solo SuperAdmin lo define.
 # ---------------------------------------------------------------------------
 
+@extend_schema(tags=["datalayers"], summary="Listar contratos de datos (DataLayer)")
 class DataLayerListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     queryset = DataLayer.objects.all()
     serializer_class = DataLayerSerializer
 
 
+@extend_schema(tags=["datalayers"], summary="Crear contrato de datos")
 class DataLayerCreateView(generics.CreateAPIView):
     permission_classes = [IsSuperAdmin]
     queryset = DataLayer.objects.all()
     serializer_class = DataLayerSerializer
 
 
+@extend_schema(tags=["datalayers"], summary="Detalle de un contrato de datos")
 class DataLayerDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.IsAuthenticated]
     queryset = DataLayer.objects.all()
     serializer_class = DataLayerSerializer
 
 
+@extend_schema(tags=["datalayers"], summary="Actualizar contrato de datos")
 class DataLayerUpdateView(generics.UpdateAPIView):
     permission_classes = [IsSuperAdmin]
     queryset = DataLayer.objects.all()
@@ -48,6 +55,7 @@ class DataLayerUpdateView(generics.UpdateAPIView):
 # Los técnicos crean y el supervisor puede corregir metadatos.
 # ---------------------------------------------------------------------------
 
+@extend_schema(tags=["datalayers"], summary="Listar encabezados de importación")
 class DataLayerHeaderListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = DataLayerHeaderSerializer
@@ -58,12 +66,14 @@ class DataLayerHeaderListView(generics.ListAPIView):
         ).all()
 
 
+@extend_schema(tags=["datalayers"], summary="Crear encabezado de importación")
 class DataLayerHeaderCreateView(generics.CreateAPIView):
     permission_classes = [IsTechnician]
     queryset = DataLayerHeader.objects.all()
     serializer_class = DataLayerHeaderSerializer
 
 
+@extend_schema(tags=["datalayers"], summary="Detalle de un encabezado de importación")
 class DataLayerHeaderDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = DataLayerHeaderSerializer
@@ -74,28 +84,54 @@ class DataLayerHeaderDetailView(generics.RetrieveAPIView):
         ).all()
 
 
+@extend_schema(tags=["datalayers"], summary="Actualizar metadatos de encabezado")
 class DataLayerHeaderUpdateView(generics.UpdateAPIView):
     permission_classes = [IsSupervisor]
     queryset = DataLayerHeader.objects.all()
     serializer_class = DataLayerHeaderSerializer
 
 
+@extend_schema(
+    tags=["datalayers"],
+    summary="Importar puntos desde CSV (async)",
+    description=(
+        "Crea un `DataLayerHeader` y encola una tarea Celery que procesa el CSV "
+        "en segundo plano y genera los `DataLayerPoints` en bulk.\n\n"
+        "**Body** (`multipart/form-data`):\n"
+        "- `task` *(UUID, opcional)* — tarea de campo que origina la importación\n"
+        "- `datalayer` *(int, requerido)* — contrato de datos a aplicar\n"
+        "- `crop` *(int, requerido)* — variedad de cultivo en el momento de captura\n"
+        "- `import_date` *(date YYYY-MM-DD, requerido)* — fecha de la toma de muestras\n"
+        "- `csv_file` *(file, requerido)* — CSV con columnas obligatorias: `lat`, `lon`; "
+        "opcional: `captured_at`; columnas adicionales se mapean a `raw_data` JSONB segun `definition_scheme` del DataLayer\n\n"
+        "**Responde 202 Accepted** de inmediato con `header_id` y `celery_task_id`. "
+        "Los puntos se crean de forma asíncrona; consultar el listado de puntos con "
+        "`GET /api/v1/datalayers/points/?header=<header_id>` para verificar el resultado."
+    ),
+    request=inline_serializer(
+        name="ImportCSVRequest",
+        fields={
+            "task":        drf_serializers.UUIDField(required=False, help_text="UUID de la FieldTask (opcional)"),
+            "datalayer":   drf_serializers.IntegerField(help_text="ID del DataLayer a aplicar"),
+            "crop":        drf_serializers.IntegerField(help_text="ID del CropCatalog"),
+            "import_date": drf_serializers.DateField(help_text="Fecha de captura YYYY-MM-DD"),
+            "csv_file":    drf_serializers.FileField(help_text="Archivo CSV con columnas lat, lon [, captured_at] + raw_data"),
+        },
+    ),
+    responses={
+        202: inline_serializer(
+            name="ImportCSVResponse",
+            fields={
+                "header_id":      drf_serializers.UUIDField(),
+                "celery_task_id": drf_serializers.CharField(),
+                "detail":         drf_serializers.CharField(),
+            },
+        ),
+        400: OpenApiTypes.OBJECT,
+        409: OpenApiTypes.OBJECT,
+    },
+)
 class DataLayerHeaderImportView(APIView):
-    """
-    POST /api/v1/datalayers/headers/import/
-
-    Crea un DataLayerHeader y encola una tarea Celery que procesa el CSV
-    y crea los DataLayerPoints en bulk (sin bloquear el HTTP request).
-
-    Body (multipart/form-data):
-        - task         UUID, opcional  — tarea de campo que origina la importación
-        - datalayer    int, requerido  — contrato de datos a aplicar
-        - crop         int, requerido  — cultivo del momento de captura
-        - import_date  date, requerido — fecha de la importación
-        - csv_file     file, requerido — CSV con columnas: lat, lon, captured_at (opt), + raw_data
-
-    Responde 202 Accepted con { header_id, celery_task_id }
-    """
     permission_classes = [IsTechnician]
     parser_classes = [MultiPartParser]
 
@@ -152,6 +188,31 @@ class DataLayerHeaderImportView(APIView):
 # Los técnicos crean puntos individuales (la carga masiva usa /headers/import/).
 # ---------------------------------------------------------------------------
 
+@extend_schema(
+    tags=["datalayers"],
+    summary="Listar puntos georreferenciados (DataLayerPoints)",
+    description=(
+        "Retorna los puntos de captura de muestras agrícolas. Cada punto incluye:\n\n"
+        "- `geom`: coordenadas WGS84 (EPSG:4326) — **Point** GeoJSON\n"
+        "- `raw_data`: objeto JSONB con los atributos medidos en el punto "
+        "(pH, C, N, NDVI, etc.) definidos por el `definition_scheme` del DataLayer asociado\n\n"
+        "**Uso típico para mapas de calor**: filtrar por `header` y usar `geom` + "
+        "el atributo deseado de `raw_data` como valor de intensidad en el visor geoespacial.\n\n"
+        "**Ejemplo de `raw_data`**:\n"
+        "```json\n"
+        "{\"pH\": 6.8, \"C\": 1.23, \"N\": 0.15, \"NDVI\": 0.74}\n"
+        "```"
+    ),
+    parameters=[
+        OpenApiParameter(
+            name="header",
+            type=OpenApiTypes.UUID,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            description="Filtra puntos por UUID del DataLayerHeader (sesión de captura).",
+        ),
+    ],
+)
 class DataLayerPointsListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = DataLayerPointsSerializer
@@ -167,12 +228,14 @@ class DataLayerPointsListView(generics.ListAPIView):
         return qs
 
 
+@extend_schema(tags=["datalayers"], summary="Registrar un punto individual (uso excepcional)")
 class DataLayerPointsCreateView(generics.CreateAPIView):
     permission_classes = [IsTechnician]
     queryset = DataLayerPoints.objects.all()
     serializer_class = DataLayerPointsSerializer
 
 
+@extend_schema(tags=["datalayers"], summary="Detalle de un punto georreferenciado")
 class DataLayerPointsDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = DataLayerPointsSerializer

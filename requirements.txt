@@ -17,5 +17,11 @@ python-decouple>=3.8,<4.0
 # Async / Celery
 celery[redis]>=5.4,<6.0
 
+# Admin UI
+django-jazzmin>=3.0,<4.0
+
+# Documentación API (OpenAPI 3.0)
+drf-spectacular>=0.29,<1.0
+
 # Producción
 gunicorn>=22.0,<23.0

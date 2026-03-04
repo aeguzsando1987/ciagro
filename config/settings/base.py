@@ -15,6 +15,7 @@ SECRET_KEY = config("DJANGO_SECRET_KEY", default="django-insecure-dev-key-cambia
 
 # --- Apps ---
 DJANGO_APPS = [
+    "jazzmin",                 # ANTES de django.contrib.admin (reemplaza templates admin)
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -30,6 +31,7 @@ THIRD_PARTY_APPS = [
     "rest_framework_simplejwt.token_blacklist",    # Logout real: invalida refresh tokens
     "django_filters",                              # Filtrado en API
     "import_export",                               # Importación/exportación CSV, XLSX
+    "drf_spectacular",                             # Documentación OpenAPI 3.0
 ]
 
 LOCAL_APPS = [
@@ -114,6 +116,83 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 25,
+    # drf-spectacular genera el esquema OpenAPI 3.0 inspeccionando serializers y vistas.
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+# --- drf-spectacular (OpenAPI 3.0) ---
+# SPECTACULAR_SETTINGS controla los metadatos del esquema generado y
+# cómo se manejan tipos especiales (GeoJSON, JWT, JSONB, paginación).
+SPECTACULAR_SETTINGS = {
+    # Metadatos del proyecto visibles en la cabecera de Swagger UI / ReDoc
+    "TITLE": "CIAgro API",
+    "DESCRIPTION": (
+        "API REST del sistema de gestión agrícola CIAgro.\n\n"
+        "## Autenticación\n"
+        "Todos los endpoints (salvo `/auth/login/` y `/auth/register/`) requieren "
+        "un **Bearer token JWT** en el header:\n"
+        "```\nAuthorization: Bearer <access_token>\n```\n\n"
+        "## Datos geoespaciales\n"
+        "Los endpoints de `geo_assets` retornan **GeoJSON** (Feature/FeatureCollection). "
+        "Los puntos en `datalayers/points/` incluyen coordenadas WGS84 (EPSG:4326) "
+        "y un campo `raw_data` JSONB con los atributos medidos (pH, C, NDVI, etc.) "
+        "definidos por el `definition_scheme` del `DataLayer` asociado."
+    ),
+    "VERSION": "1.0.0-alpha",
+    "CONTACT": {"name": "CIAgro Dev Team"},
+    "LICENSE": {"name": "Privado"},
+
+    # Agrupa los endpoints por tag en la UI.
+    # Los tags se asignan en cada vista con @extend_schema(tags=[...])
+    "TAGS": [
+        {"name": "auth",         "description": "Login, logout, tokens JWT, registro"},
+        {"name": "users",        "description": "Usuarios, roles, perfiles individuales"},
+        {"name": "geography",    "description": "Países y estados/provincias"},
+        {"name": "organizations","description": "Unidades agrícolas, sectores, contactos"},
+        {"name": "geo-assets",   "description": "Ranchos (GeoJSON), parcelas (GeoJSON), socios"},
+        {"name": "field-ops",    "description": "Catálogos de cultivos/plagas, tareas de campo, reportes"},
+        {"name": "datalayers",   "description": "Contratos JSONB, headers de importación, puntos georreferenciados (mapas de calor)"},
+    ],
+
+    # Seguridad: documenta que la API usa Bearer JWT
+    "SECURITY": [{"BearerAuth": []}],
+    "COMPONENTS": {
+        "securitySchemes": {
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+            }
+        }
+    },
+
+    # Comportamiento del generador
+    "SERVE_INCLUDE_SCHEMA": False,   # Oculta el endpoint /schema/ del propio esquema
+    # COMPONENT_SPLIT_REQUEST = False (no separar request/response).
+    # Con True, los GeoFeatureModelSerializer fallan porque 'id' (read_only) se excluye
+    # del schema de request y drf-spectacular intenta hacer pop() de un campo inexistente.
+    "COMPONENT_SPLIT_REQUEST": False,
+    "ENUM_GENERATE_CHOICE_DESCRIPTION": True,  # Incluye descripciones en campos choices
+
+    # Postprocesadores: drf-spectacular incluye uno para paginación de DRF
+    "POSTPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.postprocess_schema_enums",
+    ],
+
+    # Suprime warnings de "Could not reverse url" para modelos sin URL admin registrada.
+    # Ocurre con campos FK a auth.User cuando AUTH_USER_MODEL apunta a un modelo custom.
+    "DISABLE_ERRORS_AND_WARNINGS": True,
+
+    # Configuración de Swagger UI
+    "SWAGGER_UI_SETTINGS": {
+        # Mantiene el token JWT entre recargas de página (localStorage del browser)
+        "persistAuthorization": True,
+        # Barra de búsqueda/filtro de endpoints visible por defecto
+        "filter": True,
+        # Muestra los schemas de request/response expandidos por defecto
+        "defaultModelsExpandDepth": 2,
+        "defaultModelExpandDepth": 2,
+    },
 }
 
 
@@ -137,3 +216,41 @@ CELERY_BROKER_URL = config("REDIS_URL", default="redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
+
+# --- Jazzmin (admin branding) ---
+JAZZMIN_SETTINGS = {
+    "site_title": "CIAgro Admin",
+    "site_header": "CIAgro",
+    "site_brand": "CIAgro",
+    "welcome_sign": "Bienvenido al panel de administración de CIAgro",
+    "copyright": "CIAgro © 2026",
+    "search_model": ["auth.User"],
+    "topmenu_links": [
+        {"name": "Inicio", "url": "admin:index", "permissions": ["auth.view_user"]},
+        {"name": "API Docs", "url": "/api/docs/", "new_window": True},
+    ],
+    "show_sidebar": True,
+    "navigation_expanded": True,
+    "hide_apps": [],
+    "order_with_respect_to": [
+        "organizations", "geo_assets", "field_ops", "datalayers", "users", "geography",
+    ],
+    "icons": {
+        "auth": "fas fa-users-cog",
+        "organizations.agrounit": "fas fa-building",
+        "geo_assets.ranch": "fas fa-map-marker-alt",
+        "geo_assets.plot": "fas fa-draw-polygon",
+        "field_ops.fieldtask": "fas fa-tasks",
+        "datalayers.datalayer": "fas fa-database",
+        "datalayers.datalayerheader": "fas fa-file-import",
+        "datalayers.datalayerpoints": "fas fa-map-pin",
+    },
+    "default_icon_parents": "fas fa-chevron-circle-right",
+    "default_icon_children": "fas fa-circle",
+    "related_modal_active": False,
+    "custom_css": None,
+    "custom_js": None,
+    "use_google_fonts_cdn": True,
+    "show_ui_builder": False,
+    "changeform_format": "horizontal_tabs",
+}

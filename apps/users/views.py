@@ -5,6 +5,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
+from drf_spectacular.utils import extend_schema, inline_serializer
+from drf_spectacular.types import OpenApiTypes
+from rest_framework import serializers as drf_serializers
 
 from apps.users.models import Individual, User, UserRole, WorkRole, UserAssignment
 from apps.users.serializers import (
@@ -21,25 +24,36 @@ from apps.users.permissions import IsSuperAdmin
 from apps.core.mixins import SoftDeleteMixin
 
 
-
-
+@extend_schema(
+    tags=["auth"],
+    summary="Login — obtener tokens JWT",
+    description=(
+        "Autentica con `username` y `password`. "
+        "Retorna `access` (vida 5 min) y `refresh` (vida 7 días). "
+        "El `access` token incluye los claims `role_name` y `role_level`.\n\n"
+        "**En Swagger UI**: una vez obtenido el `access` token, pulsa **Authorize** "
+        "(candado en la parte superior) y pégalo como `Bearer <access_token>`."
+    ),
+)
 class LoginView(TokenObtainPairView):
-    """
-    POST /api/v1/auth/login/
-    Recibe: { "username": "...", "password": "..." }
-    Retorna: { "access": "...", "refresh": "..." }
-    El access token incluye claims de rol (role_name, role_level).
-    """
     serializer_class = CIAgroTokenObtainPairSerializer
 
 
+@extend_schema(
+    tags=["auth"],
+    summary="Logout — invalidar refresh token",
+    description=(
+        "Añade el `refresh` token a la blacklist de simplejwt. "
+        "Después de esto, ese refresh token no puede usarse para obtener nuevos access tokens. "
+        "El cliente debe también borrar el access token de su almacenamiento local."
+    ),
+    request=inline_serializer(
+        name="LogoutRequest",
+        fields={"refresh": drf_serializers.CharField(help_text="Refresh token a invalidar")},
+    ),
+    responses={204: None, 400: OpenApiTypes.OBJECT},
+)
 class LogoutView(APIView):
-    """
-    POST /api/v1/auth/logout/
-    Recibe: { "refresh": "<refresh_token>" }
-    Invalida el refresh token en la blacklist.
-    Sin esto, el logout es solo client-side (borrar el token del navegador).
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
@@ -55,12 +69,19 @@ class LogoutView(APIView):
             )
 
 
+@extend_schema(
+    tags=["auth"],
+    summary="Cambiar contraseña",
+    request=inline_serializer(
+        name="ChangePasswordRequest",
+        fields={
+            "old_password": drf_serializers.CharField(),
+            "new_password": drf_serializers.CharField(),
+        },
+    ),
+    responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
+)
 class ChangePasswordView(APIView):
-    """
-    POST /api/v1/auth/change-password/
-    Recibe: { "old_password": "...", "new_password": "..." }
-    Valida la contrasena actual antes de permitir el cambio.
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
@@ -90,6 +111,11 @@ class ChangePasswordView(APIView):
         )
 
 
+@extend_schema(
+    tags=["auth"],
+    summary="Registrar usuario (admin)",
+    description="Crea un User + Individual. El usuario recibirá `requires_password_change=True`. Solo SuperAdmin.",
+)
 class AdminRegisterView(APIView):
     permission_classes = [IsSuperAdmin]
 
@@ -104,10 +130,16 @@ class AdminRegisterView(APIView):
         return Response(
             serializer.errors, status=status.HTTP_400_BAD_REQUEST
             )
-        
+
+
+@extend_schema(
+    tags=["auth"],
+    summary="Auto-registro público",
+    description="Crea un usuario sin rol asignado. Disponible sin autenticación (AllowAny).",
+)
 class PublicRegisterView(APIView):
     permission_classes = [permissions.AllowAny]
-    
+
     def post(self, request):
         serializer = PublicRegisterSerializer(data=request.data)
         if serializer.is_valid():
@@ -121,53 +153,39 @@ class PublicRegisterView(APIView):
         )
         
         
+@extend_schema(tags=["users"], summary="Listar roles de acceso (UserRole)")
 class UserRoleListView(generics.ListAPIView):
-    """
-    GET /api/v1/users/roles/
-    Lista todos los roles de acceso. Usado para poblar dropdowns en el frontend.
-    """
     permission_classes = [permissions.IsAuthenticated]
     queryset = UserRole.objects.all().order_by("level")
     serializer_class = UserRoleSerializer
-    
-    
+
+
+@extend_schema(tags=["users"], summary="Listar roles laborales (WorkRole)")
 class WorkRoleListView(generics.ListAPIView):
-    """
-    GET /api/v1/users/work-roles/
-    Lista todos los roles laborales disponibles.
-    """
     permission_classes = [permissions.IsAuthenticated]
     queryset = WorkRole.objects.all().order_by("work_name")
     serializer_class = WorkRoleSerializer
-    
 
+
+@extend_schema(tags=["users"], summary="Listar usuarios activos")
 class UserListView(generics.ListAPIView):
-    """
-    GET /api/v1/users/
-    Lista todos los usuarios activos. Solo SuperAdmin.
-    """
     permission_classes = [IsSuperAdmin]
     queryset = User.objects.filter(is_deleted=False).select_related("user_role", "individual").order_by("username")
     serializer_class = UserDetailSerializer
 
 
+@extend_schema(tags=["users"], summary="Eliminar usuario (soft delete)")
 class UserDestroyView(SoftDeleteMixin, generics.DestroyAPIView):
-    """
-    DELETE /api/v1/users/<uuid:pk>/
-    Soft delete de usuario. Solo SuperAdmin.
-    Marca is_deleted=True, registra deleted_at y deleted_by.
-    No elimina el registro de la BD.
-    """
     permission_classes = [IsSuperAdmin]
     queryset = User.objects.filter(is_deleted=False)
-    
-    
+
+
+@extend_schema(
+    tags=["users"],
+    summary="Listar asignaciones usuario -unidad",
+    description="Filtros opcionales: `?user=<uuid>` y `?agro_unit=<uuid>`.",
+)
 class UserAssignmentListView(generics.ListAPIView):
-    """
-    GET /api/v1/users/assignments/
-    Lista asignaciones. Filtros opcionales: ?user=<uuid> y ?agro_unit=<uuid>.
-    Solo SuperAdmin.
-    """
     permission_classes = [IsSuperAdmin]
     serializer_class = UserAssignmentSerializer
 
@@ -182,32 +200,28 @@ class UserAssignmentListView(generics.ListAPIView):
         return qs
 
 
+@extend_schema(tags=["users"], summary="Crear asignación usuario -unidad")
 class UserAssignmentCreateView(generics.CreateAPIView):
-    """
-    POST /api/v1/users/assignments/create/
-    Crea una asignación user↔agro_unit.
-    Solo SuperAdmin.
-    """
     permission_classes = [IsSuperAdmin]
     queryset = UserAssignment.objects.all()
     serializer_class = UserAssignmentSerializer
 
 
+@extend_schema(tags=["users"], summary="Eliminar asignación usuario -unidad")
 class UserAssignmentDestroyView(generics.DestroyAPIView):
-    """
-    DELETE /api/v1/users/assignments/<int:pk>/delete/
-    Elimina una asignación (hard delete — no hay datos de negocio en esta tabla pivote).
-    Solo SuperAdmin.
-    """
     permission_classes = [IsSuperAdmin]
     queryset = UserAssignment.objects.all()
 
 
+@extend_schema(
+    tags=["users"],
+    summary="Perfil propio (GET/PATCH)",
+    description=(
+        "`GET` retorna el perfil completo del usuario autenticado. "
+        "`PATCH` actualiza campos del `Individual` asociado (nombre, teléfono, etc.)."
+    ),
+)
 class UserMeView(generics.RetrieveUpdateAPIView):
-    """
-    GET   /api/v1/users/me/ — Perfil del usuario autenticado.
-    PATCH /api/v1/users/me/ — Actualiza campos de Individual (perfil personal).
-    """
     permission_classes = [permissions.IsAuthenticated]
     
     def get_object(self):

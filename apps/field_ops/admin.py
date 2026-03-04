@@ -1,5 +1,6 @@
 from django.contrib import admin
 from apps.field_ops.models import CropCatalog, PestCatalog, FieldTask, FieldTaskReport, TaskReportIssue
+from apps.field_ops.widgets import CycleWidget
 
 
 @admin.register(CropCatalog)
@@ -24,6 +25,12 @@ class FieldTaskAdmin(admin.ModelAdmin):
     search_fields = ['voucher_code', 'title']
     ordering = ['-est_start_date']
     readonly_fields = ['id']
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        """Reemplaza el TextInput libre de 'cycle' con el widget de dos selectores."""
+        if db_field.name == "cycle":
+            kwargs["widget"] = CycleWidget()
+        return super().formfield_for_dbfield(db_field, request, **kwargs)
 
 
 class TaskReportIssueInline(admin.TabularInline):

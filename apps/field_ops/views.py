@@ -2,6 +2,8 @@ from rest_framework import generics, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status as http_status
+from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
 from apps.field_ops.models import CropCatalog, PestCatalog, FieldTask, FieldTaskReport
 from apps.field_ops.serializers import (
     CropCatalogSerializer, PestCatalogSerializer,
@@ -11,30 +13,47 @@ from apps.users.permissions import IsSuperAdmin
 from apps.core.mixins import ScopeFilterMixin
 
 
+@extend_schema(tags=["field-ops"], summary="Listar catálogo de cultivos")
 class CropCatalogListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     queryset = CropCatalog.objects.all()
     serializer_class = CropCatalogSerializer
 
 
+@extend_schema(tags=["field-ops"], summary="Crear variedad de cultivo")
 class CropCatalogCreateView(generics.CreateAPIView):
     permission_classes = [IsSuperAdmin]
     queryset = CropCatalog.objects.all()
     serializer_class = CropCatalogSerializer
 
 
+@extend_schema(tags=["field-ops"], summary="Detalle de un cultivo")
 class CropCatalogDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.IsAuthenticated]
     queryset = CropCatalog.objects.all()
     serializer_class = CropCatalogSerializer
 
 
+@extend_schema(tags=["field-ops"], summary="Actualizar cultivo")
 class CropCatalogUpdateView(generics.UpdateAPIView):
     permission_classes = [IsSuperAdmin]
     queryset = CropCatalog.objects.all()
     serializer_class = CropCatalogSerializer
 
 
+@extend_schema(
+    tags=["field-ops"],
+    summary="Listar catálogo de plagas",
+    parameters=[
+        OpenApiParameter(
+            name="default_crop",
+            type=OpenApiTypes.INT,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            description="Filtra plagas por ID del cultivo asociado.",
+        ),
+    ],
+)
 class PestCatalogListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = PestCatalogSerializer
@@ -47,23 +66,41 @@ class PestCatalogListView(generics.ListAPIView):
         return qs
 
 
+@extend_schema(tags=["field-ops"], summary="Crear plaga")
 class PestCatalogCreateView(generics.CreateAPIView):
     permission_classes = [IsSuperAdmin]
     queryset = PestCatalog.objects.all()
     serializer_class = PestCatalogSerializer
 
 
+@extend_schema(tags=["field-ops"], summary="Detalle de una plaga")
 class PestCatalogDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.IsAuthenticated]
     queryset = PestCatalog.objects.select_related("default_crop")
     serializer_class = PestCatalogSerializer
 
 
+@extend_schema(tags=["field-ops"], summary="Actualizar plaga")
 class PestCatalogUpdateView(generics.UpdateAPIView):
     permission_classes = [IsSuperAdmin]
     queryset = PestCatalog.objects.all()
     serializer_class = PestCatalogSerializer
 
+
+@extend_schema(
+    tags=["field-ops"],
+    summary="Listar tareas de campo",
+    parameters=[
+        OpenApiParameter(
+            name="status",
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            description="Filtra por estado: `open`, `in_progress`, `closed`.",
+            enum=["open", "in_progress", "closed"],
+        ),
+    ],
+)
 class FieldTaskListView(ScopeFilterMixin, generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class   = FieldTaskSerializer
@@ -72,22 +109,22 @@ class FieldTaskListView(ScopeFilterMixin, generics.ListAPIView):
         qs = FieldTask.objects.select_related(
             "datalayer", "individual", "agro_unit", "plot", "crop"
         )
-        # Scope: solo tareas de las unidades asignadas al usuario
         if not self.is_super_admin():
             qs = qs.filter(agro_unit__in=self.get_assigned_units_ids())
-        # Filtro opcional por status
         status = self.request.query_params.get("status")
         if status:
             qs = qs.filter(status=status)
         return qs
 
 
+@extend_schema(tags=["field-ops"], summary="Crear tarea de campo")
 class FieldTaskCreateView(generics.CreateAPIView):
     permission_classes = [IsSuperAdmin]
     queryset           = FieldTask.objects.all()
     serializer_class   = FieldTaskSerializer
 
 
+@extend_schema(tags=["field-ops"], summary="Detalle de una tarea de campo")
 class FieldTaskDetailView(ScopeFilterMixin, generics.RetrieveAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class   = FieldTaskSerializer
@@ -101,25 +138,32 @@ class FieldTaskDetailView(ScopeFilterMixin, generics.RetrieveAPIView):
         return qs
 
 
+@extend_schema(tags=["field-ops"], summary="Actualizar tarea de campo")
 class FieldTaskUpdateView(generics.UpdateAPIView):
     permission_classes = [IsSuperAdmin]
     queryset           = FieldTask.objects.all()
     serializer_class   = FieldTaskSerializer
 
 
+@extend_schema(
+    tags=["field-ops"],
+    summary="Generar reporte de tarea (idempotente)",
+    description=(
+        "Genera (o regenera) el `FieldTaskReport` de una `FieldTask`. "
+        "Agrega estadísticas numéricas (`min`, `max`, `avg`, `count`) de cada atributo "
+        "JSONB presente en los `DataLayerPoints` asociados a la tarea.\n\n"
+        "**Idempotente**: si el reporte ya existe, actualiza `summary_data` y el evaluador; "
+        "los campos manuales (`conclusion`, etc.) no se sobreescriben.\n\n"
+        "**409 Conflict** si la tarea está en estado `closed`."
+    ),
+    responses={
+        200: FieldTaskReportSerializer,
+        201: FieldTaskReportSerializer,
+        404: OpenApiTypes.OBJECT,
+        409: OpenApiTypes.OBJECT,
+    },
+)
 class GenerateReportView(ScopeFilterMixin, APIView):
-    """
-    POST /api/v1/field-ops/tasks/<uuid:pk>/generate-report/
-
-    Genera (o regenera) el FieldTaskReport de una FieldTask.
-
-    - Calcula summary_data a partir de todos los DataLayerPoints
-      asociados a los DataLayerHeaders de la tarea.
-    - Idempotente: si ya existe un reporte para la tarea, lo actualiza
-      (summary_data + evaluador). Los campos manuales (conclusion, etc.)
-      no se sobreescriben.
-    - Bloquea tareas en estado "closed" (409).
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk):

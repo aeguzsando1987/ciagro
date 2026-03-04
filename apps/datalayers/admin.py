@@ -64,9 +64,40 @@ class DataLayerHeaderAdmin(admin.ModelAdmin):
     list_filter     = ["datalayer", "crop", "import_date"]
     search_fields   = ["datalayer__code", "datalayer__name", "plot__code", "crop__name"]
     ordering        = ["-import_date"]
-    readonly_fields = ["id", "created_at", "import_csv_link"]
+    readonly_fields = ["id", "created_at", "import_csv_link", "locked_notice"]
     raw_id_fields   = ["task", "plot"]  # UUID FKs — evita dropdown con todos los registros
     inlines         = [DataLayerPointsInline]
+
+    # ------------------------------------------------------------------
+    # B2: Inmutabilidad post-import
+    # Campos que se bloquean cuando ya existen puntos cargados.
+    # Solo import_date queda editable para correcciones de fecha.
+    # ------------------------------------------------------------------
+    _LOCKED_FIELDS = ["task", "plot", "crop", "datalayer"]
+
+    def get_readonly_fields(self, request, obj=None):
+        base = list(super().get_readonly_fields(request, obj))
+        if obj and obj.points.count() > 0:
+            return list(set(base + self._LOCKED_FIELDS))
+        return base
+
+    @admin.display(description="Estado de importación")
+    def locked_notice(self, obj):
+        """Banner informativo: muestra si el header está bloqueado o libre."""
+        if not obj or not obj.pk:
+            return "Nuevo header — todos los campos editables."
+        count = obj.points.count()
+        if count > 0:
+            return format_html(
+                '<span style="color:#c0392b;font-weight:bold">'
+                "⛔ Header bloqueado — {:,} puntos importados. "
+                "Solo se puede editar la fecha de importación."
+                "</span>",
+                count,
+            )
+        return format_html(
+            '<span style="color:#27ae60">✅ Sin puntos — todos los campos editables.</span>'
+        )
 
     # ------------------------------------------------------------------
     # URL personalizada: /admin/datalayers/datalayerheader/<pk>/import-csv/
@@ -163,3 +194,9 @@ class DataLayerPointsAdmin(admin.ModelAdmin):
     raw_id_fields        = ["header", "plot"]
     list_select_related  = True             # evita N+1 al listar header y plot
     list_per_page        = 50              # tabla puede tener 60k+ filas
+
+    def has_change_permission(self, request, obj=None):
+        """Los puntos de datos son inmutables — no se editan una vez creados."""
+        if obj is not None:
+            return False
+        return super().has_change_permission(request)
