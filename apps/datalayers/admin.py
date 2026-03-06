@@ -10,6 +10,8 @@ from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.html import format_html
 
+from apps.core.admin import AttachmentInline
+from apps.core.models import Attachment
 from apps.datalayers.models import DataLayer, DataLayerHeader, DataLayerPoints
 from apps.datalayers.widgets import DefinitionSchemeWidget, EvaluationSchemeWidget
 
@@ -76,6 +78,7 @@ class DatalayerAdmin(admin.ModelAdmin):
     search_fields = ["code", "name"]
     ordering = ["created_at"]
     readonly_fields = ["created_at"]
+    inlines = [AttachmentInline]
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         """
@@ -88,6 +91,17 @@ class DatalayerAdmin(admin.ModelAdmin):
         elif db_field.name == "evaluation_scheme":
             kwargs["widget"] = EvaluationSchemeWidget()
         return super().formfield_for_dbfield(db_field, request, **kwargs)
+
+    def save_formset(self, request, form, formset, change):
+        if formset.model is Attachment:
+            instances = formset.save(commit=False)
+            for inst in instances:
+                if not inst.pk:
+                    inst.uploaded_by = request.user
+                inst.save()
+            formset.save_m2m()
+        else:
+            super().save_formset(request, form, formset, change)
 
 
 class DataLayerPointsFormSet(BaseInlineFormSet):

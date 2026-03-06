@@ -100,6 +100,12 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+# --- Archivos de media (uploads de usuarios) ---
+# En producción, Nginx sirve /media/ directamente apuntando a MEDIA_ROOT.
+# En desarrollo, Django los sirve vía urls.py (static() retorna [] en producción).
+MEDIA_URL  = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
 # --- PK por defecto ---
 # BigAutoField para tablas sin UUID explícito (tablas auxiliares/catálogos).
 # Los modelos principales usarán UUIDField definido manualmente en BaseAuditModel (Fase 1).
@@ -145,6 +151,7 @@ SPECTACULAR_SETTINGS = {
     # Agrupa los endpoints por tag en la UI.
     # Los tags se asignan en cada vista con @extend_schema(tags=[...])
     "TAGS": [
+        {"name": "core",         "description": "Archivos adjuntos genéricos (upload, list, delete)"},
         {"name": "auth",         "description": "Login, logout, tokens JWT, registro"},
         {"name": "users",        "description": "Usuarios, roles, perfiles individuales"},
         {"name": "geography",    "description": "Países y estados/provincias"},

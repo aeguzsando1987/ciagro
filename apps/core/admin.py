@@ -1,5 +1,7 @@
 from django.contrib import admin
+from django.contrib.contenttypes.admin import GenericTabularInline
 from django.utils import timezone
+from apps.core.models import Attachment
 
 
 class SoftDeleteAdminMixin:
@@ -45,3 +47,37 @@ class SoftDeleteAdminMixin:
             obj.created_by = request.user
         obj.updated_by = request.user
         super().save_model(request, obj, form, change)
+
+
+class AttachmentInline(GenericTabularInline):
+    """
+    Inline reutilizable para adjuntar archivos a cualquier modelo del proyecto.
+
+    Uso en un ModelAdmin:
+        from apps.core.admin import AttachmentInline
+        from apps.core.models import Attachment
+
+        class MyModelAdmin(admin.ModelAdmin):
+            inlines = [AttachmentInline]
+
+            def save_formset(self, request, form, formset, change):
+                if formset.model is Attachment:
+                    instances = formset.save(commit=False)
+                    for inst in instances:
+                        if not inst.pk:
+                            inst.uploaded_by = request.user
+                        inst.save()
+                    formset.save_m2m()
+                else:
+                    super().save_formset(request, form, formset, change)
+
+    Al guardar, Attachment._sync_parent_urls() actualiza automáticamente
+    el campo attachments_url del objeto padre con las URLs activas.
+    """
+
+    model = Attachment
+    extra = 1
+    fields = ["file", "filename", "uploaded_by", "uploaded_at"]
+    readonly_fields = ["uploaded_by", "uploaded_at"]
+    verbose_name = "Archivo adjunto"
+    verbose_name_plural = "Archivos adjuntos"

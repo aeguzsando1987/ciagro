@@ -1,6 +1,8 @@
 from django.contrib import admin
-from apps.core.admin import SoftDeleteAdminMixin
+from apps.core.admin import AttachmentInline, SoftDeleteAdminMixin
+from apps.core.models import Attachment
 from apps.organizations.models import AgroSector, AgroUnit, Contact, ContactAssignment
+from apps.core.widgets import AdditionalParamsWidget
 from apps.users.models import UserAssignment
 
 
@@ -68,7 +70,23 @@ class AgroUnitAdmin(SoftDeleteAdminMixin, admin.ModelAdmin):
     ordering = ["commercial_name"]
     readonly_fields = ["id", "slug", "created_at", "updated_at", "created_by", "updated_by",
                        "is_deleted", "deleted_at", "deleted_by"]
-    inlines = [UserAssignmentInline, ContactAssignmentInline]
+    inlines = [UserAssignmentInline, ContactAssignmentInline, AttachmentInline]
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        if db_field.name == "additional_params":
+            kwargs["widget"] = AdditionalParamsWidget()
+        return super().formfield_for_dbfield(db_field, request, **kwargs)
+
+    def save_formset(self, request, form, formset, change):
+        if formset.model is Attachment:
+            instances = formset.save(commit=False)
+            for inst in instances:
+                if not inst.pk:
+                    inst.uploaded_by = request.user
+                inst.save()
+            formset.save_m2m()
+        else:
+            super().save_formset(request, form, formset, change)
 
     class Media:
         js = ["geography/admin_country_state.js"]
