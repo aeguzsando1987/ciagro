@@ -12,6 +12,7 @@ from apps.datalayers.views import (
     DataLayerPointsListView,
     DataLayerPointsCreateView,
     DataLayerPointsDetailView,
+    DataLayerPointsExportView,
 )
 
 app_name = "datalayers"
@@ -32,6 +33,9 @@ urlpatterns = [
 
     path("points/", DataLayerPointsListView.as_view(), name="datalayerpoints-list"),
     path("points/create/", DataLayerPointsCreateView.as_view(), name="datalayerpoints-create"),
+    # IMPORTANTE: export/ debe ir ANTES de <uuid:pk>/ para que Django no intente
+    # interpretar la palabra "export" como un UUID (fallaría silenciosamente).
+    path("points/export/", DataLayerPointsExportView.as_view(), name="datalayerpoints-export"),
     path("points/<uuid:pk>/", DataLayerPointsDetailView.as_view(), name="datalayerpoints-detail"),
     # Sin ruta update: los puntos cargados son inmutables una vez creados.
 ]

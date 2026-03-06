@@ -93,6 +93,22 @@ class Plot(BaseAuditModel):
                 slug = f"{base_slug}-{counter}"
                 counter += 1
             self.slug = slug
+
+        # D4: Auto-calcular centroide y área desde el polígono (PostGIS).
+        # Se ejecuta ANTES de super().save() para persistir todo en un solo UPDATE.
+        if self.geom:
+            # Centroide exacto — GeoDjango delega a PostGIS ST_Centroid().
+            self.centroid = self.geom.centroid  # PointField SRID 4326
+
+            # Área en hectáreas — SRID 4326 mide en grados², por lo que
+            # proyectamos a UTM Zona 14N (EPSG:32614, metros) antes de calcular.
+            # Si el SRID no estuviera disponible, se deja total_area sin cambios.
+            try:
+                utm = self.geom.transform(32614, clone=True)
+                self.total_area = round(utm.area / 10000, 2)  # m² → ha
+            except Exception:
+                pass  # total_area queda con el valor anterior o None
+
         super().save(*args, **kwargs)
     
     def __str__(self):

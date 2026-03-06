@@ -1,10 +1,14 @@
 # apps/datalayers/views.py
+import csv
+import io
 import tempfile
+from datetime import date
 from rest_framework import generics, permissions
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework import status as http_status
+from django.http import HttpResponse
 from drf_spectacular.utils import extend_schema, OpenApiParameter, inline_serializer
 from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers as drf_serializers
@@ -192,12 +196,15 @@ class DataLayerHeaderImportView(APIView):
     tags=["datalayers"],
     summary="Listar puntos georreferenciados (DataLayerPoints)",
     description=(
-        "Retorna los puntos de captura de muestras agrícolas. Cada punto incluye:\n\n"
+        "Retorna los puntos de captura de muestras agricolas. Cada punto incluye:\n\n"
         "- `geom`: coordenadas WGS84 (EPSG:4326) — **Point** GeoJSON\n"
         "- `raw_data`: objeto JSONB con los atributos medidos en el punto "
         "(pH, C, N, NDVI, etc.) definidos por el `definition_scheme` del DataLayer asociado\n\n"
-        "**Uso típico para mapas de calor**: filtrar por `header` y usar `geom` + "
-        "el atributo deseado de `raw_data` como valor de intensidad en el visor geoespacial.\n\n"
+        "**Uso tipico para mapas de calor**: combinar `geom` (lat/lon) con el valor "
+        "del atributo deseado de `raw_data` como intensidad en el visor geoespacial. "
+        "La colorimetria se obtiene del `evaluation_scheme` del DataLayer filtrado.\n\n"
+        "**Sin paginacion**: esta vista retorna todos los puntos del filtro activo "
+        "(puede ser >60 000 registros). Siempre use al menos un filtro para acotar el resultado.\n\n"
         "**Ejemplo de `raw_data`**:\n"
         "```json\n"
         "{\"pH\": 6.8, \"C\": 1.23, \"N\": 0.15, \"NDVI\": 0.74}\n"
@@ -209,22 +216,84 @@ class DataLayerHeaderImportView(APIView):
             type=OpenApiTypes.UUID,
             location=OpenApiParameter.QUERY,
             required=False,
-            description="Filtra puntos por UUID del DataLayerHeader (sesión de captura).",
+            description="Filtra por UUID del DataLayerHeader (sesion de captura).",
+        ),
+        OpenApiParameter(
+            name="plot",
+            type=OpenApiTypes.UUID,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            description="Filtra por UUID del Plot (lote/parcela).",
+        ),
+        OpenApiParameter(
+            name="ranch",
+            type=OpenApiTypes.UUID,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            description="Filtra por UUID del Ranch. Incluye todos los lotes del rancho.",
+        ),
+        OpenApiParameter(
+            name="agro_unit",
+            type=OpenApiTypes.UUID,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            description="Filtra por UUID del AgroUnit (productor). Incluye todos los ranchos y lotes del productor.",
+        ),
+        OpenApiParameter(
+            name="datalayer",
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            description="Filtra por codigo unico del DataLayer (ej: `SUELO-2024`, `NDVI-DRONE`). Ver GET /api/v1/datalayers/.",
+        ),
+        OpenApiParameter(
+            name="attribute",
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            description=(
+                "Filtra puntos que contienen la clave JSONB indicada en `raw_data` "
+                "(ej: `?attribute=pH` retorna solo puntos que tienen la clave `pH`). "
+                "Util para descartar puntos con datos incompletos antes de renderizar el mapa de calor."
+            ),
         ),
     ],
 )
 class DataLayerPointsListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = DataLayerPointsSerializer
+    pagination_class = None  # Retorna todos los puntos — el cliente debe filtrar antes de llamar
 
     def get_queryset(self):
-        # select_related evita N+1 al acceder a header.datalayer en validate()
         qs = DataLayerPoints.objects.select_related(
-            "header__datalayer", "plot"
+            "header__datalayer", "plot__ranch__producer"
         ).all()
-        header_id = self.request.query_params.get("header")
+        params = self.request.query_params
+
+        header_id = params.get("header")
         if header_id:
             qs = qs.filter(header_id=header_id)
+
+        plot_id = params.get("plot")
+        if plot_id:
+            qs = qs.filter(plot_id=plot_id)
+
+        ranch_id = params.get("ranch")
+        if ranch_id:
+            qs = qs.filter(plot__ranch_id=ranch_id)
+
+        agro_unit_id = params.get("agro_unit")
+        if agro_unit_id:
+            qs = qs.filter(plot__ranch__producer_id=agro_unit_id)
+
+        datalayer_code = params.get("datalayer")
+        if datalayer_code:
+            qs = qs.filter(header__datalayer__code=datalayer_code)
+
+        attribute = params.get("attribute")
+        if attribute:
+            qs = qs.filter(raw_data__has_key=attribute)
+
         return qs
 
 
@@ -244,3 +313,100 @@ class DataLayerPointsDetailView(generics.RetrieveAPIView):
         return DataLayerPoints.objects.select_related(
             "header__datalayer", "plot"
         )
+
+
+# ---------------------------------------------------------------------------
+# Export — descarga CSV de DataLayerPoints con columnas JSONB aplanadas.
+# Acepta los mismos filtros que DataLayerPointsListView.
+# ---------------------------------------------------------------------------
+
+@extend_schema(
+    tags=["datalayers"],
+    summary="Exportar puntos a CSV (descarga)",
+    description=(
+        "Genera y descarga un archivo CSV con los puntos filtrados. "
+        "Las claves del JSONB `raw_data` se aplanan como columnas individuales "
+        "(ej: `pH`, `C`, `N`). Acepta los mismos filtros que `GET /api/v1/datalayers/points/`.\n\n"
+        "**Nombre del archivo:** `{datalayer}_{plot}_{fecha}.csv`\n\n"
+        "**Columnas fijas:** `lat`, `lon`, `captured_at`\n\n"
+        "**Columnas dinamicas:** una por cada clave presente en `raw_data` del conjunto filtrado."
+    ),
+    parameters=[
+        OpenApiParameter(name="header",     type=OpenApiTypes.UUID, location=OpenApiParameter.QUERY, required=False),
+        OpenApiParameter(name="plot",       type=OpenApiTypes.UUID, location=OpenApiParameter.QUERY, required=False),
+        OpenApiParameter(name="ranch",      type=OpenApiTypes.UUID, location=OpenApiParameter.QUERY, required=False),
+        OpenApiParameter(name="agro_unit",  type=OpenApiTypes.UUID, location=OpenApiParameter.QUERY, required=False),
+        OpenApiParameter(name="datalayer",  type=OpenApiTypes.STR,  location=OpenApiParameter.QUERY, required=False),
+        OpenApiParameter(name="attribute",  type=OpenApiTypes.STR,  location=OpenApiParameter.QUERY, required=False),
+    ],
+    responses={200: OpenApiTypes.BINARY},
+)
+class DataLayerPointsExportView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        qs = DataLayerPoints.objects.select_related(
+            "header__datalayer", "plot"
+        ).all()
+        params = request.query_params
+
+        header_id = params.get("header")
+        if header_id:
+            qs = qs.filter(header_id=header_id)
+
+        plot_id = params.get("plot")
+        if plot_id:
+            qs = qs.filter(plot_id=plot_id)
+
+        ranch_id = params.get("ranch")
+        if ranch_id:
+            qs = qs.filter(plot__ranch_id=ranch_id)
+
+        agro_unit_id = params.get("agro_unit")
+        if agro_unit_id:
+            qs = qs.filter(plot__ranch__producer_id=agro_unit_id)
+
+        datalayer_code = params.get("datalayer")
+        if datalayer_code:
+            qs = qs.filter(header__datalayer__code=datalayer_code)
+
+        attribute = params.get("attribute")
+        if attribute:
+            qs = qs.filter(raw_data__has_key=attribute)
+
+        # Materializar el queryset una sola vez para poder iterar dos veces
+        # (una para descubrir las claves JSONB, otra para escribir las filas)
+        points = list(qs)
+
+        # Recolectar todas las claves JSONB presentes en el conjunto filtrado,
+        # manteniendo orden de insercion (dict preserva orden desde Python 3.7)
+        jsonb_keys = list(dict.fromkeys(
+            key
+            for point in points
+            for key in (point.raw_data or {}).keys()
+        ))
+
+        # Construir nombre de archivo descriptivo
+        dl_code  = datalayer_code or "datalayer"
+        plot_obj = points[0].plot if points and points[0].plot else None
+        plot_code = plot_obj.code if plot_obj else "sin-plot"
+        filename = f"{dl_code}_{plot_code}_{date.today()}.csv"
+
+        # Escribir CSV en memoria (StringIO evita archivos temporales en disco)
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+
+        # Fila de encabezado: columnas fijas + columnas dinamicas del JSONB
+        writer.writerow(["lat", "lon", "captured_at"] + jsonb_keys)
+
+        for point in points:
+            lon, lat = point.geom.coords  # GeoJSON: coords = (longitude, latitude)
+            raw = point.raw_data or {}
+            writer.writerow(
+                [lat, lon, point.captured_at] + [raw.get(k, "") for k in jsonb_keys]
+            )
+
+        buffer.seek(0)
+        response = HttpResponse(buffer, content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response

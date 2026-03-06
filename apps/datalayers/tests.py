@@ -459,7 +459,7 @@ class DataLayerPointsAPITests(APITestCase):
         url = reverse("datalayers:datalayerpoints-list")
         res = self.client.get(url, {"header": str(self.header.pk)})
         self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertEqual(res.data["count"], 2)
+        self.assertEqual(len(res.data), 2)  # sin paginación — res.data es lista directa
 
     def test_technician_crea_punto_valido(self):
         """raw_data que cumple el definition_scheme → 201 Created."""
@@ -489,7 +489,63 @@ class DataLayerPointsAPITests(APITestCase):
 
 
 # ---------------------------------------------------------------------------
-# 7. DataLayerHeaderImportViewTests
+# 7. DataLayerPointsExportViewTests
+# ---------------------------------------------------------------------------
+
+class DataLayerPointsExportViewTests(APITestCase):
+    """
+    Verifica el endpoint GET /api/v1/datalayers/points/export/
+    - Devuelve Content-Type text/csv con status 200
+    - Las claves del JSONB raw_data aparecen como columnas en el header del CSV
+    - Un usuario no autenticado recibe 401
+    """
+
+    def setUp(self):
+        self.role_guest = make_role("Guest", 1)
+        self.guest = make_user("guest_exp", "guest_exp@ex.com", role=self.role_guest)
+
+        self.unit  = make_agro_unit("AU-EXP")
+        self.ranch = make_ranch("RC-EXP", agro_unit=self.unit)
+        self.plot  = make_plot("PLT-EXP", ranch=self.ranch)
+        self.crop  = make_crop("Trigo")
+        self.dl    = make_datalayer("DL-EXP")
+        self.header = make_header(datalayer=self.dl, crop=self.crop, plot=self.plot)
+
+        make_point(header=self.header, raw_data={"pH": 6.5, "C": 1.2})
+        make_point(header=self.header, raw_data={"pH": 7.0, "C": 0.9})
+
+    def test_export_retorna_csv(self):
+        """GET export/ con autenticacion → 200 y Content-Type text/csv."""
+        do_login(self.client, "guest_exp")
+        url = reverse("datalayers:datalayerpoints-export")
+        res = self.client.get(url, {"header": str(self.header.pk)})
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn("text/csv", res["Content-Type"])
+        # El CSV debe tener al menos la fila de encabezado + 2 filas de datos
+        lines = res.content.decode("utf-8").strip().splitlines()
+        self.assertEqual(len(lines), 3)  # header + 2 puntos
+
+    def test_export_columnas_jsonb_aplanadas(self):
+        """Las claves de raw_data aparecen como columnas en el CSV."""
+        do_login(self.client, "guest_exp")
+        url = reverse("datalayers:datalayerpoints-export")
+        res = self.client.get(url, {"header": str(self.header.pk)})
+        primera_linea = res.content.decode("utf-8").splitlines()[0]
+        columnas = [c.strip() for c in primera_linea.split(",")]
+        self.assertIn("lat",  columnas)
+        self.assertIn("lon",  columnas)
+        self.assertIn("pH",   columnas)
+        self.assertIn("C",    columnas)
+
+    def test_export_sin_autenticacion_retorna_401(self):
+        """Sin token → 401 Unauthorized."""
+        url = reverse("datalayers:datalayerpoints-export")
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+# ---------------------------------------------------------------------------
+# 8. DataLayerHeaderImportViewTests
 # ---------------------------------------------------------------------------
 
 class DataLayerHeaderImportViewTests(APITestCase):
@@ -832,3 +888,85 @@ class EndToEndCSVImportTest(TestCase):
         self.assertNotIn("lon", point.raw_data)
         # Denormalización: plot_id heredado del header (bulk_create no llama save())
         self.assertEqual(point.plot_id, self.plot.id)
+
+
+# ---------------------------------------------------------------------------
+# 11. DataLayerImportTaskTransitionTest — Transición de FieldTask al importar
+# ---------------------------------------------------------------------------
+
+class DataLayerImportTaskTransitionTest(TestCase):
+    """
+    D5: Verifica que import_csv_to_datalayer() transiciona automáticamente el
+    FieldTask vinculado de 'open' → 'completed' al finalizar la importación.
+    También verifica que un header sin task no lanza excepción.
+    """
+
+    def setUp(self):
+        self.unit = make_agro_unit("AU-TRANS")
+        self.ranch = make_ranch("RC-TRANS", agro_unit=self.unit)
+        self.plot = make_plot("PLT-TRANS", ranch=self.ranch)
+        self.crop = make_crop("Maiz Trans")
+        self.dl = make_datalayer("DL-TRANS")
+        self.task = make_task(
+            agro_unit=self.unit,
+            crop=self.crop,
+            plot=self.plot,
+            task_status="open",
+        )
+        self.header = make_header(
+            task=self.task,
+            datalayer=self.dl,
+            crop=self.crop,
+        )
+
+    def _write_csv(self, content):
+        """Escribe content a un archivo temporal y devuelve la ruta."""
+        import tempfile as _tempfile
+        f = _tempfile.NamedTemporaryFile(
+            mode="w", suffix=".csv", delete=False, newline="", encoding="utf-8"
+        )
+        f.write(content)
+        f.close()
+        return f.name
+
+    def test_import_transiciona_task_a_completed(self):
+        """
+        Al importar un CSV con puntos válidos, el FieldTask vinculado debe
+        cambiar su status a 'completed'.
+        """
+        from apps.datalayers.tasks import import_csv_to_datalayer
+
+        tmp_path = self._write_csv(
+            "lat,lon,captured_at,ph,mo\n"
+            "21.88,-102.29,2024-01-15T08:00:00,6.5,2.3\n"
+        )
+        result = import_csv_to_datalayer(str(self.header.id), tmp_path)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["created"], 1)
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, "completed")
+
+    def test_import_sin_task_no_falla_y_crea_puntos(self):
+        """
+        Un header sin task asociada debe importar correctamente sin
+        lanzar excepción ni intentar transicionar ninguna tarea.
+        """
+        from apps.datalayers.tasks import import_csv_to_datalayer
+
+        header_sin_task = make_header(
+            task=None,
+            datalayer=self.dl,
+            crop=self.crop,
+            plot=self.plot,
+        )
+        tmp_path = self._write_csv(
+            "lat,lon,captured_at,ph\n"
+            "21.88,-102.29,2024-01-15T08:00:00,6.5\n"
+        )
+        result = import_csv_to_datalayer(str(header_sin_task.id), tmp_path)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(
+            DataLayerPoints.objects.filter(header=header_sin_task).count(), 1
+        )

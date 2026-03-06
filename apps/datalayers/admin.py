@@ -1,8 +1,10 @@
+import csv
+import io
 import tempfile
 
 from django.contrib import admin
 from django.forms import BaseInlineFormSet
-from django.http import HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
@@ -10,6 +12,62 @@ from django.utils.html import format_html
 
 from apps.datalayers.models import DataLayer, DataLayerHeader, DataLayerPoints
 from apps.datalayers.widgets import DefinitionSchemeWidget, EvaluationSchemeWidget
+
+
+# ---------------------------------------------------------------------------
+# Helper compartido: genera un HttpResponse CSV a partir de un header y sus puntos.
+# Incluye comentarios de metadatos del header en las primeras líneas.
+# ---------------------------------------------------------------------------
+
+def _build_csv_response(header, points):
+    """
+    Genera la descarga CSV de los DataLayerPoints de un DataLayerHeader.
+
+    Formato de salida:
+        # datalayer: SUELO-2024
+        # plot: PLT-001
+        # import_date: 2024-03-15
+        # crop: Maiz Blanco
+        lat,lon,captured_at,pH,C,N,...
+        23.56,-104.12,2024-03-01,6.8,1.23,...
+    """
+    # Recolectar claves JSONB únicas preservando orden de inserción
+    jsonb_keys = list(dict.fromkeys(
+        key
+        for point in points
+        for key in (point.raw_data or {}).keys()
+    ))
+
+    # Nombre de archivo descriptivo
+    dl_code   = header.datalayer.code if header.datalayer_id else "datalayer"
+    plot_code = header.plot.code if header.plot_id else "sin-plot"
+    filename  = f"{dl_code}_{plot_code}_{header.import_date}.csv"
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+
+    # Filas de metadatos del header (comentarios legibles)
+    writer.writerow([f"# datalayer: {dl_code}"])
+    writer.writerow([f"# plot: {plot_code}"])
+    writer.writerow([f"# import_date: {header.import_date}"])
+    crop_name = header.crop.name if header.crop_id else "N/A"
+    writer.writerow([f"# crop: {crop_name}"])
+
+    # Fila de encabezado de columnas
+    writer.writerow(["lat", "lon", "captured_at"] + jsonb_keys)
+
+    # Filas de datos
+    for point in points:
+        lon, lat = point.geom.coords  # GeoJSON: (longitude, latitude)
+        raw = point.raw_data or {}
+        writer.writerow(
+            [lat, lon, point.captured_at] + [raw.get(k, "") for k in jsonb_keys]
+        )
+
+    buffer.seek(0)
+    response = HttpResponse(buffer, content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
 
 
 @admin.register(DataLayer)
@@ -35,12 +93,21 @@ class DatalayerAdmin(admin.ModelAdmin):
 class DataLayerPointsFormSet(BaseInlineFormSet):
     """
     FormSet personalizado que limita la visualización a 50 puntos.
-    El slice se aplica AQUÍ (después de que Django filtra por header_id),
-    no en get_queryset del Inline (donde aún no se ha aplicado el filtro del padre
-    y el slice provocaría un TypeError al intentar filtrar un queryset ya cortado).
+
+    El slice se aplica AQUÍ (después de que BaseInlineFormSet.__init__ aplica
+    el filtro por header_id). Si se aplicara en get_queryset del Inline (antes
+    del filtro del padre), Django lanzaría TypeError al intentar filtrar un
+    queryset ya cortado.
+
+    Se guarda el queryset recortado en self._qs_sliced para que todas las
+    llamadas internas (initial_form_count, _construct_form) usen el mismo
+    objeto QuerySet — esto comparte el _result_cache de Django y evita que
+    cada acceso [i] lance una consulta SQL independiente.
     """
     def get_queryset(self):
-        return super().get_queryset()[:50]
+        if not hasattr(self, "_qs_sliced"):
+            self._qs_sliced = super().get_queryset()[:50]
+        return self._qs_sliced
 
 
 class DataLayerPointsInline(admin.TabularInline):
@@ -48,11 +115,14 @@ class DataLayerPointsInline(admin.TabularInline):
     formset          = DataLayerPointsFormSet
     extra            = 0
     can_delete       = False  # los puntos son inmutables una vez cargados
-    max_num          = 0      # no permite agregar puntos desde el inline (usar /headers/import/)
     show_change_link = True
     readonly_fields  = ["id", "plot", "geom", "captured_at", "raw_data"]
     fields           = ["id", "plot", "geom", "captured_at", "raw_data"]
     verbose_name_plural = "Puntos de datos (primeros 50 — usar /points/ para ver todos)"
+
+    def has_add_permission(self, request, obj=None):
+        """Los puntos solo se crean vía importación CSV (Celery). No desde el admin."""
+        return False
 
     def get_queryset(self, request):
         return super().get_queryset(request).order_by("-captured_at")
@@ -64,9 +134,19 @@ class DataLayerHeaderAdmin(admin.ModelAdmin):
     list_filter     = ["datalayer", "crop", "import_date"]
     search_fields   = ["datalayer__code", "datalayer__name", "plot__code", "crop__name"]
     ordering        = ["-import_date"]
-    readonly_fields = ["id", "created_at", "import_csv_link", "locked_notice"]
+    readonly_fields = ["id", "created_at", "import_csv_link", "export_csv_link", "locked_notice"]
     raw_id_fields   = ["task", "plot"]  # UUID FKs — evita dropdown con todos los registros
     inlines         = [DataLayerPointsInline]
+    fieldsets = [
+        ("Acciones e identificación", {
+            # Primera pestaña: siempre visible. Contiene los botones de acción
+            # y los metadatos de solo lectura del header.
+            "fields": ["id", "locked_notice", "import_csv_link", "export_csv_link", "created_at"],
+        }),
+        ("Configuración del estudio", {
+            "fields": ["datalayer", "plot", "crop", "task", "import_date"],
+        }),
+    ]
 
     # ------------------------------------------------------------------
     # B2: Inmutabilidad post-import
@@ -111,6 +191,11 @@ class DataLayerHeaderAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.import_csv_view),
                 name="datalayers_datalayerheader_import_csv",
             ),
+            path(
+                "<uuid:pk>/export-csv/",
+                self.admin_site.admin_view(self.export_csv_view),
+                name="datalayers_datalayerheader_export_csv",
+            ),
         ]
         return custom + urls
 
@@ -154,6 +239,25 @@ class DataLayerHeaderAdmin(admin.ModelAdmin):
             context,
         )
 
+    def export_csv_view(self, request, pk):
+        """
+        Descarga directa del CSV de puntos para un DataLayerHeader.
+        No requiere template — devuelve el archivo inmediatamente.
+        """
+        header = get_object_or_404(
+            DataLayerHeader.objects.select_related("datalayer", "plot", "crop"),
+            pk=pk,
+        )
+        points = list(
+            header.points.all().order_by("captured_at")
+        )
+        if not points:
+            self.message_user(request, "Este header no tiene puntos cargados.", level="warning")
+            return HttpResponseRedirect(
+                reverse("admin:datalayers_datalayerheader_change", args=[pk])
+            )
+        return _build_csv_response(header, points)
+
     # ------------------------------------------------------------------
     # Post-save: redirigir al importador CSV tras crear un header nuevo
     # ------------------------------------------------------------------
@@ -181,6 +285,25 @@ class DataLayerHeaderAdmin(admin.ModelAdmin):
         return format_html(
             '<a class="button" href="{}">📂 Importar puntos CSV</a>',
             url,
+        )
+
+    @admin.display(description="Exportar puntos")
+    def export_csv_link(self, obj):
+        """Botón visible en el change form para descargar los puntos como CSV."""
+        if not obj.pk:
+            return "Guarda el header primero."
+        count = obj.points.count()
+        if count == 0:
+            return "Sin puntos cargados — no hay datos para exportar."
+        url = reverse("admin:datalayers_datalayerheader_export_csv", args=[obj.pk])
+        # Nota: format_html convierte todos los args a str via conditional_escape antes
+        # de aplicar el format spec. {count:,} fallaría porque recibe "440" (str), no 440 (int).
+        # Formateamos el número ANTES de pasarlo a format_html.
+        count_fmt = f"{count:,}"
+        return format_html(
+            '<a class="button" href="{}">⬇️ Exportar {} puntos a CSV</a>',
+            url,
+            count_fmt,
         )
 
 

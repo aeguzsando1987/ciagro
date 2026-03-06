@@ -1,4 +1,6 @@
+from django.test import TestCase
 from django.urls import reverse
+from django.contrib.gis.geos import GEOSGeometry
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -262,3 +264,72 @@ class RanchPartnerAPITests(APITestCase):
         url = reverse("geo_assets:ranch-partner-delete", kwargs={"pk": self.partner.pk})
         self.client.delete(url)
         self.assertFalse(RanchPartner.objects.filter(pk=self.partner.pk).exists())
+
+
+class PlotGeomAutoCalculationTests(TestCase):
+    """
+    D4: Plot.save() auto-calcula centroide y área total desde el campo geom
+    usando PostGIS (ST_Centroid + proyección UTM zona 14N para área en ha).
+
+    El polígono de prueba es un cuadrado de ~0.1° × 0.1° centrado en
+    (-99.15, 18.95), que corresponde a la zona centro de México.
+    """
+
+    # Cuadrado de ~11 km × ~11 km al sur de Ciudad de México (SRID 4326)
+    POLYGON_WKT = (
+        "POLYGON((-99.2 18.9, -99.1 18.9, -99.1 19.0, -99.2 19.0, -99.2 18.9))"
+    )
+
+    def setUp(self):
+        producer = make_agro_unit("P-GEO", "Productor Geo")
+        self.ranch = make_ranch("R-GEO", "Rancho Geo", producer=producer)
+
+    def test_save_con_geom_asigna_centroide(self):
+        """El centroide se calcula automáticamente al guardar (ST_Centroid vía PostGIS)."""
+        geom = GEOSGeometry(self.POLYGON_WKT, srid=4326)
+        plot = make_plot("PLT-GEO-1", self.ranch, geom=geom)
+
+        self.assertIsNotNone(plot.centroid)
+        # Centro geométrico del cuadrado: lon=-99.15, lat=18.95
+        self.assertAlmostEqual(float(plot.centroid.x), -99.15, places=2)
+        self.assertAlmostEqual(float(plot.centroid.y), 18.95, places=2)
+
+    def test_save_con_geom_asigna_total_area_en_ha(self):
+        """
+        El área se calcula proyectando a UTM zona 14N (EPSG:32614) para obtener m²
+        y luego convirtiendo a hectáreas (/ 10000).
+        Un cuadrado 0.1°×0.1° a lat ~19° ≈ 11.1 km × 10.5 km ≈ ~11 650 ha.
+        """
+        geom = GEOSGeometry(self.POLYGON_WKT, srid=4326)
+        plot = make_plot("PLT-GEO-2", self.ranch, geom=geom)
+
+        self.assertIsNotNone(plot.total_area)
+        # Rango razonable: rechaza cálculos en grados² (~0.01) o sin proyección (m²→~1e7)
+        self.assertGreater(float(plot.total_area), 8_000)
+        self.assertLess(float(plot.total_area), 15_000)
+
+    def test_save_sin_geom_deja_centroide_en_none(self):
+        """Sin polígono, centroid y total_area quedan None (no se sobreescriben)."""
+        plot = make_plot("PLT-GEO-3", self.ranch)
+
+        self.assertIsNone(plot.centroid)
+        self.assertIsNone(plot.total_area)
+
+    def test_actualizar_geom_recalcula_area(self):
+        """Modificar el polígono de un Plot ya existente recalcula total_area."""
+        geom1 = GEOSGeometry(self.POLYGON_WKT, srid=4326)
+        plot = make_plot("PLT-GEO-4", self.ranch, geom=geom1)
+        area_original = plot.total_area
+
+        # Polígono más pequeño: mitad de ancho (0.05° × 0.1°)
+        geom2 = GEOSGeometry(
+            "POLYGON((-99.2 18.9, -99.15 18.9, -99.15 19.0, -99.2 19.0, -99.2 18.9))",
+            srid=4326,
+        )
+        plot.geom = geom2
+        plot.save()
+        plot.refresh_from_db()
+
+        self.assertIsNotNone(plot.total_area)
+        # El polígono es la mitad → área debe ser ~50% de la original
+        self.assertLess(float(plot.total_area), float(area_original) * 0.7)
