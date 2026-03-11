@@ -14,6 +14,7 @@
 <div id="content-main">
     <h1>Importar puntos CSV</h1>
 
+    {# ── Info del header ─────────────────────────────────────────── #}
     <fieldset class="module aligned">
         <div class="form-row">
             <div class="field-box">
@@ -41,7 +42,8 @@
         </div>
     </fieldset>
 
-    <form method="post" enctype="multipart/form-data">
+    {# ── Formulario ──────────────────────────────────────────────── #}
+    <form method="post" enctype="multipart/form-data" id="import-form">
         {% csrf_token %}
         <fieldset class="module aligned">
             <h2>Seleccionar archivo</h2>
@@ -49,18 +51,316 @@
                 <label for="csv_file" class="required">Archivo CSV:</label>
                 <input type="file" name="csv_file" id="csv_file" accept=".csv" required>
                 <p class="help">
-                    Columnas requeridas: <code>lat</code>, <code>lon</code>.<br>
-                    Columnas opcionales: <code>captured_at</code> (ISO 8601).<br>
-                    El resto de columnas se guardará en <code>raw_data</code> y debe
+                    Columnas del sistema requeridas: <code>lat</code>, <code>lon</code>.<br>
+                    Columna opcional del sistema: <code>captured_at</code> (ISO 8601).<br>
+                    El resto de columnas se guardará en <code>parameters</code> y debe
                     cumplir el <em>definition_scheme</em> del DataLayer.
                 </p>
             </div>
         </fieldset>
 
+        {# ── Panel de validación (oculto hasta seleccionar archivo) ── #}
+        <div id="validation-panel" style="display:none; margin-bottom:16px;">
+            <fieldset class="module aligned">
+                <h2>Validación del esquema</h2>
+                <div id="validation-content"></div>
+            </fieldset>
+        </div>
+
+        {# ── Preview de datos (oculto hasta seleccionar archivo) ──── #}
+        <div id="preview-panel" style="display:none; margin-bottom:16px;">
+            <fieldset class="module aligned">
+                <h2>Preview — primeras filas</h2>
+                <div style="overflow-x:auto;">
+                    <table id="preview-table"
+                           style="border-collapse:collapse; font-size:0.85em;
+                                  font-family:monospace; min-width:100%;">
+                    </table>
+                </div>
+                <p id="preview-count"
+                   style="margin-top:8px; font-size:0.8em; color:#666;"></p>
+            </fieldset>
+        </div>
+
         <div class="submit-row">
-            <input type="submit" value="Encolar importación" class="default">
-            <a href="{{ change_url }}" style="margin-left: 1em;">Cancelar</a>
+            <input type="submit" value="Encolar importación"
+                   id="submit-btn" class="default">
+            <a href="{{ change_url }}" style="margin-left:1em;">Cancelar</a>
         </div>
     </form>
 </div>
+
+{# ── definition_scheme pasado desde la vista como JSON ────────────── #}
+<script>
+const DEFINITION_SCHEME = {{ definition_scheme_json|safe }};
+
+// ── 1. Parser CSV ────────────────────────────────────────────────────
+// Lee una línea del CSV respetando campos entre comillas.
+function parseCSVLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+            inQuotes = !inQuotes;
+        } else if (ch === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+        } else {
+            current += ch;
+        }
+    }
+    result.push(current.trim());
+    return result;
+}
+
+// Parsea el texto completo del CSV → {headers, rows, totalRows}
+function parseCSV(text) {
+    const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+    if (lines.length === 0) return { headers: [], rows: [], totalRows: 0 };
+    const headers = parseCSVLine(lines[0]);
+    const dataLines = lines.slice(1);
+    const rows = dataLines.slice(0, 5).map(parseCSVLine);
+    return { headers, rows, totalRows: dataLines.length };
+}
+
+// ── 2. Validador de columnas ─────────────────────────────────────────
+// Compara las columnas del CSV contra el definition_scheme y las columnas
+// del sistema (lat, lon, captured_at). Devuelve un objeto con el resultado
+// detallado y un flag `canImport` para controlar el botón.
+function validateColumns(headers, scheme) {
+    const SYSTEM_REQUIRED = ['lat', 'lon'];
+    const SYSTEM_OPTIONAL = ['captured_at'];
+    const ALL_SYSTEM = [...SYSTEM_REQUIRED, ...SYSTEM_OPTIONAL];
+
+    // Mapa de aliases → nombre canónico (en minúsculas para comparar)
+    const aliases = scheme.aliases || {};
+    const aliasMapLower = {};
+    for (const [alias, canonical] of Object.entries(aliases)) {
+        aliasMapLower[alias.toLowerCase()] = canonical;
+    }
+
+    // Resolver cada columna del CSV a su nombre canónico
+    const resolvedHeaders = headers.map(h => {
+        const lower = h.toLowerCase();
+        return aliasMapLower[lower] || h;
+    });
+
+    const headersLower    = headers.map(h => h.toLowerCase());
+    const resolvedLower   = resolvedHeaders.map(r => r.toLowerCase());
+
+    // Columnas del sistema
+    const systemRequired = SYSTEM_REQUIRED.map(col => ({
+        name: col,
+        present: headersLower.includes(col),
+    }));
+    const systemOptional = SYSTEM_OPTIONAL.map(col => ({
+        name: col,
+        present: headersLower.includes(col),
+    }));
+
+    // Columnas del esquema
+    const schemeRequired = (scheme.required || []).map(col => ({
+        name: col,
+        present: resolvedLower.includes(col.toLowerCase()),
+    }));
+    const schemeOptional = (scheme.optional || []).map(col => ({
+        name: col,
+        present: resolvedLower.includes(col.toLowerCase()),
+    }));
+
+    // Columnas desconocidas: no son del sistema ni están en el esquema ni en aliases
+    const allKnownLower = new Set([
+        ...ALL_SYSTEM.map(c => c.toLowerCase()),
+        ...(scheme.required || []).map(c => c.toLowerCase()),
+        ...(scheme.optional || []).map(c => c.toLowerCase()),
+        ...Object.keys(aliases).map(a => a.toLowerCase()),
+    ]);
+    const unknown = headers.filter(h => !allKnownLower.has(h.toLowerCase()));
+
+    const missingSystemRequired = systemRequired.filter(c => !c.present);
+    const missingSchemeRequired = schemeRequired.filter(c => !c.present);
+    const canImport = missingSystemRequired.length === 0 && missingSchemeRequired.length === 0;
+    const hasWarnings = unknown.length > 0 || schemeOptional.some(c => !c.present);
+
+    return {
+        systemRequired, systemOptional,
+        schemeRequired, schemeOptional,
+        unknown,
+        missingSystemRequired, missingSchemeRequired,
+        canImport, hasWarnings,
+    };
+}
+
+// ── 3. Renderizadores ────────────────────────────────────────────────
+
+// Devuelve HTML de un badge de estado para una columna
+function badge(present, text) {
+    const color   = present ? '#2e7d32' : '#c62828';
+    const bg      = present ? '#e8f5e9' : '#ffebee';
+    const symbol  = present ? '✅' : '❌';
+    return `<span style="display:inline-block; margin:2px 4px; padding:2px 8px;
+                         border-radius:12px; background:${bg}; color:${color};
+                         font-size:0.82em; font-family:monospace;">
+                ${symbol} ${text}
+            </span>`;
+}
+
+function badgeWarn(text) {
+    return `<span style="display:inline-block; margin:2px 4px; padding:2px 8px;
+                         border-radius:12px; background:#fff8e1; color:#e65100;
+                         font-size:0.82em; font-family:monospace;">
+                ⚠️ ${text}
+            </span>`;
+}
+
+// Renderiza el panel de validación completo
+function renderValidation(v, scheme) {
+    let html = '';
+
+    // — Columnas del sistema —
+    html += `<div style="margin-bottom:10px;">
+        <strong style="font-size:0.9em;">Columnas del sistema</strong><br>
+        ${v.systemRequired.map(c => badge(c.present, c.name)).join('')}
+        ${v.systemOptional.map(c =>
+            c.present
+                ? badge(true, c.name)
+                : `<span style="display:inline-block; margin:2px 4px; padding:2px 8px;
+                                border-radius:12px; background:#f5f5f5; color:#888;
+                                font-size:0.82em; font-family:monospace;">
+                       — ${c.name} (opcional)
+                   </span>`
+        ).join('')}
+    </div>`;
+
+    // — Columnas del esquema required —
+    if ((scheme.required || []).length > 0) {
+        html += `<div style="margin-bottom:10px;">
+            <strong style="font-size:0.9em;">Requeridas por definition_scheme</strong><br>
+            ${v.schemeRequired.map(c => badge(c.present, c.name)).join('')}
+        </div>`;
+    } else {
+        html += `<div style="margin-bottom:10px; color:#888; font-size:0.85em;">
+            ℹ️ Este DataLayer no tiene columnas requeridas en su definition_scheme.
+        </div>`;
+    }
+
+    // — Columnas opcionales del esquema —
+    if ((scheme.optional || []).length > 0) {
+        const presentOpt = v.schemeOptional.filter(c => c.present);
+        const absentOpt  = v.schemeOptional.filter(c => !c.present);
+        html += `<div style="margin-bottom:10px;">
+            <strong style="font-size:0.9em;">Opcionales del esquema</strong><br>
+            ${presentOpt.map(c => badge(true, c.name)).join('')}
+            ${absentOpt.map(c =>
+                `<span style="display:inline-block; margin:2px 4px; padding:2px 8px;
+                              border-radius:12px; background:#f5f5f5; color:#888;
+                              font-size:0.82em; font-family:monospace;">
+                     — ${c.name}
+                 </span>`
+            ).join('')}
+        </div>`;
+    }
+
+    // — Columnas desconocidas —
+    if (v.unknown.length > 0) {
+        html += `<div style="margin-bottom:10px;">
+            <strong style="font-size:0.9em;">Columnas desconocidas</strong>
+            <span style="font-size:0.8em; color:#888;">
+                (no están en definition_scheme — se guardarán en parameters de todas formas)
+            </span><br>
+            ${v.unknown.map(c => badgeWarn(c)).join('')}
+        </div>`;
+    }
+
+    // — Resumen final —
+    const style = v.canImport
+        ? 'background:#e8f5e9; border-left:4px solid #2e7d32; color:#1b5e20;'
+        : 'background:#ffebee; border-left:4px solid #c62828; color:#b71c1c;';
+    const msg = v.canImport
+        ? (v.hasWarnings
+            ? '⚠️ El CSV puede importarse, pero hay columnas no reconocidas o campos opcionales ausentes.'
+            : '✅ El CSV cumple el esquema. Puedes proceder con la importación.')
+        : `❌ No se puede importar: faltan columnas requeridas (${
+              [...v.missingSystemRequired, ...v.missingSchemeRequired]
+              .map(c => c.name).join(', ')
+          }).`;
+
+    html += `<div style="padding:10px 14px; border-radius:4px; ${style}
+                         font-size:0.88em; margin-top:6px;">
+                ${msg}
+             </div>`;
+
+    return html;
+}
+
+// Renderiza la tabla de preview con las primeras filas
+function renderPreview(headers, rows, totalRows) {
+    const thStyle = `style="padding:6px 10px; background:#f5f5f5; border:1px solid #ddd;
+                             text-align:left; font-size:0.82em; white-space:nowrap;"`;
+    const tdStyle = `style="padding:5px 10px; border:1px solid #eee;
+                             font-size:0.82em; white-space:nowrap;"`;
+
+    let html = '<thead><tr>';
+    for (const h of headers) {
+        html += `<th ${thStyle}>${h}</th>`;
+    }
+    html += '</tr></thead><tbody>';
+
+    for (const row of rows) {
+        html += '<tr>';
+        for (let i = 0; i < headers.length; i++) {
+            const val = row[i] !== undefined ? row[i] : '';
+            html += `<td ${tdStyle}>${val}</td>`;
+        }
+        html += '</tr>';
+    }
+    html += '</tbody>';
+
+    const shown = Math.min(rows.length, 5);
+    document.getElementById('preview-count').textContent =
+        `Mostrando ${shown} de ${totalRows} fila(s) de datos.`;
+
+    return html;
+}
+
+// ── 4. Punto de entrada — evento change en el input ──────────────────
+document.getElementById('csv_file').addEventListener('change', function (e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function (event) {
+        const { headers, rows, totalRows } = parseCSV(event.target.result);
+
+        if (headers.length === 0) {
+            document.getElementById('validation-panel').style.display = 'none';
+            document.getElementById('preview-panel').style.display = 'none';
+            return;
+        }
+
+        // Validación
+        const v = validateColumns(headers, DEFINITION_SCHEME);
+        document.getElementById('validation-content').innerHTML =
+            renderValidation(v, DEFINITION_SCHEME);
+        document.getElementById('validation-panel').style.display = 'block';
+
+        // Preview
+        document.getElementById('preview-table').innerHTML =
+            renderPreview(headers, rows, totalRows);
+        document.getElementById('preview-panel').style.display = 'block';
+
+        // Controlar botón submit
+        const btn = document.getElementById('submit-btn');
+        btn.disabled = !v.canImport;
+        btn.value = v.canImport
+            ? (v.hasWarnings ? 'Encolar importación (con advertencias)' : 'Encolar importación')
+            : 'No se puede importar — corrige el CSV';
+        btn.style.opacity = v.canImport ? '1' : '0.5';
+        btn.style.cursor  = v.canImport ? 'pointer' : 'not-allowed';
+    };
+    reader.readAsText(file);
+});
+</script>
 {% endblock %}

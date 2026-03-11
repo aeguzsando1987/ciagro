@@ -3,7 +3,7 @@ from django.utils.text import slugify
 
 from apps.core.models import BaseAuditModel
 
-class AgroSector(models.Model):
+class AgroSector(models.Model): # Agro sector
     id = models.AutoField(primary_key=True)
     sector_name = models.CharField(max_length=100, unique=True)
     scian_code = models.CharField(max_length=20, blank=True)
@@ -17,7 +17,7 @@ class AgroSector(models.Model):
         db_table = "agro_sectors"
         ordering = ["sector_name"]
         
-class AgroUnit(BaseAuditModel):
+class AgroUnit(BaseAuditModel): # Entidad agronomica 
     
     class UnitType(models.TextChoices):
         PRODUCTOR="Productor", "Productor"

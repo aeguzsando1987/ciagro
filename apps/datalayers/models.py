@@ -134,7 +134,7 @@ class DataLayerPoints(models.Model):
         blank=True,
         help_text="Fecha, hora y segundo en la que se capturó el punto de datos."
     )
-    raw_data = models.JSONField(
+    parameters = models.JSONField(
         default=dict,
         help_text=("JSON con los datos necesarios capturados en el punto."
                 "Estructura validad en el definition_scheme de DataLayer correspondiente.")
@@ -157,6 +157,6 @@ class DataLayerPoints(models.Model):
         indexes = [
             models.Index(fields=["header"], name="idx_dlpoints_header"),
             models.Index(fields=["plot", "captured_at"], name="idx_dlpoints_plot_captured_at"),
-            GinIndex(fields=["raw_data"], name="idx_dlpoints_raw_data")
+            GinIndex(fields=["parameters"], name="idx_dlpoints_parameters")
             # GiST sobre 'geom' lo genera automaticamente GeoDjango (spatial_index=True por defecto)
         ]

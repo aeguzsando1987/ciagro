@@ -37,7 +37,7 @@ def _build_csv_response(header, points):
     jsonb_keys = list(dict.fromkeys(
         key
         for point in points
-        for key in (point.raw_data or {}).keys()
+        for key in (point.parameters or {}).keys()
     ))
 
     # Nombre de archivo descriptivo
@@ -61,7 +61,7 @@ def _build_csv_response(header, points):
     # Filas de datos
     for point in points:
         lon, lat = point.geom.coords  # GeoJSON: (longitude, latitude)
-        raw = point.raw_data or {}
+        raw = point.parameters or {}
         writer.writerow(
             [lat, lon, point.captured_at] + [raw.get(k, "") for k in jsonb_keys]
         )
@@ -130,8 +130,8 @@ class DataLayerPointsInline(admin.TabularInline):
     extra            = 0
     can_delete       = False  # los puntos son inmutables una vez cargados
     show_change_link = True
-    readonly_fields  = ["id", "plot", "geom", "captured_at", "raw_data"]
-    fields           = ["id", "plot", "geom", "captured_at", "raw_data"]
+    readonly_fields  = ["id", "plot", "geom", "captured_at", "parameters"]
+    fields           = ["id", "plot", "geom", "captured_at", "parameters"]
     verbose_name_plural = "Puntos de datos (primeros 50 — usar /points/ para ver todos)"
 
     def has_add_permission(self, request, obj=None):
@@ -240,12 +240,17 @@ class DataLayerHeaderAdmin(admin.ModelAdmin):
                 )
                 return HttpResponseRedirect(change_url)
 
+        import json as _json
         context = {
             **self.admin_site.each_context(request),
             "header": header,
             "change_url": change_url,
             "title": f"Importar CSV → {header}",
             "opts": self.model._meta,
+            # Serializado a JSON para consumo directo en el template JS
+            "definition_scheme_json": _json.dumps(
+                header.datalayer.definition_scheme or {}
+            ),
         }
         return TemplateResponse(
             request,
@@ -321,16 +326,85 @@ class DataLayerHeaderAdmin(admin.ModelAdmin):
         )
 
 
+# ---------------------------------------------------------------------------
+# E3: Filtro lateral por clave JSONB de parameters
+# ---------------------------------------------------------------------------
+
+class RawDataAttributeFilter(admin.SimpleListFilter):
+    """
+    Filtro lateral que permite aislar puntos por una clave específica de parameters.
+
+    Cuando está activo (?attribute=pH):
+    - El queryset se filtra a puntos que tengan esa clave (usa GinIndex → eficiente)
+    - DataLayerPointsAdmin.get_list_display() agrega una columna extra con el valor
+
+    lookups() lee definition_scheme de todos los DataLayers para construir la lista
+    de claves conocidas — sin tocar la tabla DataLayerPoints.
+    """
+    title = "atributo parameters"
+    parameter_name = "attribute"
+
+    def lookups(self, request, model_admin):
+        keys = set()
+        for dl in DataLayer.objects.all():
+            scheme = dl.definition_scheme or {}
+            keys.update(scheme.get("required", []))
+            keys.update(scheme.get("optional", []))
+        return [(k, k) for k in sorted(keys)]
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(parameters__has_key=self.value())
+        return queryset
+
+
 @admin.register(DataLayerPoints)
 class DataLayerPointsAdmin(admin.ModelAdmin):
-    list_display         = ["id", "header", "plot", "captured_at"]
-    list_filter          = ["captured_at"]
-    search_fields        = ["header__datalayer__code", "plot__code"]
-    ordering             = ["-captured_at"]
-    readonly_fields      = ["id", "geom"]   # geom como WKT — solo lectura sin GISModelAdmin
-    raw_id_fields        = ["header", "plot"]
-    list_select_related  = True             # evita N+1 al listar header y plot
-    list_per_page        = 50              # tabla puede tener 60k+ filas
+    list_display        = ["id", "header", "plot", "captured_at", "parameters_preview"]
+    list_filter         = ["captured_at", "header__datalayer", RawDataAttributeFilter]
+    search_fields       = ["header__datalayer__code", "plot__code"]
+    ordering            = ["-captured_at"]
+    readonly_fields     = ["id", "geom"]   # geom como WKT — solo lectura sin GISModelAdmin
+    raw_id_fields       = ["header", "plot"]
+    list_select_related = True             # evita N+1 al listar header y plot
+    list_per_page       = 50              # tabla puede tener 60k+ filas
+
+    # --- E3: columnas dinámicas parameters ---
+
+    def get_list_display(self, request):
+        """
+        Sin filtro ?attribute= → 5 columnas base + resumen compacto parameters.
+        Con filtro ?attribute=pH → agrega columna "pH" con valor numérico limpio.
+        Tabla siempre ≤ 6 columnas — sin riesgo de ensanchamiento excesivo.
+        """
+        base = ["id", "header", "plot", "captured_at", "parameters_preview"]
+        key = request.GET.get("attribute")
+        if key:
+            return base + [self._make_attribute_col(key)]
+        return base
+
+    @staticmethod
+    def _make_attribute_col(key):
+        """Fábrica de callables: extrae una clave específica de parameters."""
+        def col(obj):
+            val = (obj.parameters or {}).get(key)
+            return val if val is not None else "—"
+        col.short_description = key
+        return col
+
+    @admin.display(description="parameters")
+    def parameters_preview(self, obj):
+        """Resumen compacto: primeros 5 pares K:V + contador de ocultos."""
+        data = obj.parameters or {}
+        if not data:
+            return "—"
+        items = [f"{k}: {v}" for k, v in list(data.items())[:5]]
+        suffix = f" (+{len(data) - 5} más)" if len(data) > 5 else ""
+        return format_html(
+            '<span style="font-family:monospace; font-size:0.85em;">{}{}</span>',
+            " | ".join(items),
+            suffix,
+        )
 
     def has_change_permission(self, request, obj=None):
         """Los puntos de datos son inmutables — no se editan una vez creados."""

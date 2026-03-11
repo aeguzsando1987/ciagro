@@ -182,7 +182,7 @@ class FieldTaskReport(models.Model):
     # --- Calculado automáticamente por GenerateReportView ---
     summary_data = models.JSONField(
         default=dict,
-        help_text="Estadísticas calculadas automáticamente: conteo, min/max/avg por campo numérico de raw_data.",
+        help_text="Estadísticas calculadas automáticamente: conteo, min/max/avg por campo numérico de parameters.",
     )
     report_date = models.DateField(
         auto_now_add=True,

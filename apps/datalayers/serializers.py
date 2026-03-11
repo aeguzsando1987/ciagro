@@ -40,14 +40,14 @@ class DataLayerPointsSerializer(GeoModelSerializer):
     class Meta:
         model = DataLayerPoints
         geo_field = "geom"
-        fields = ["id", "header", "plot", "geom", "captured_at", "raw_data"]
+        fields = ["id", "header", "plot", "geom", "captured_at", "parameters"]
         read_only_fields = ["id", "plot"]
         # plot es read_only porque se hereda automático de header.plot en save() (denormalizado)
 
     def validate(self, data):
         header = data.get("header")
-        raw_data = data.get("raw_data", {})
+        parameters = data.get("parameters", {})
         if header:
             scheme = header.datalayer.definition_scheme
-            validate_raw_data_against_scheme(raw_data, scheme)
+            validate_raw_data_against_scheme(parameters, scheme)
         return data

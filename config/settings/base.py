@@ -141,7 +141,7 @@ SPECTACULAR_SETTINGS = {
         "## Datos geoespaciales\n"
         "Los endpoints de `geo_assets` retornan **GeoJSON** (Feature/FeatureCollection). "
         "Los puntos en `datalayers/points/` incluyen coordenadas WGS84 (EPSG:4326) "
-        "y un campo `raw_data` JSONB con los atributos medidos (pH, C, NDVI, etc.) "
+        "y un campo `parameters` JSONB con los atributos medidos (pH, C, NDVI, etc.) "
         "definidos por el `definition_scheme` del `DataLayer` asociado."
     ),
     "VERSION": "1.0.0-alpha",

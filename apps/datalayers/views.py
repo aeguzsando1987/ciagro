@@ -107,7 +107,7 @@ class DataLayerHeaderUpdateView(generics.UpdateAPIView):
         "- `crop` *(int, requerido)* — variedad de cultivo en el momento de captura\n"
         "- `import_date` *(date YYYY-MM-DD, requerido)* — fecha de la toma de muestras\n"
         "- `csv_file` *(file, requerido)* — CSV con columnas obligatorias: `lat`, `lon`; "
-        "opcional: `captured_at`; columnas adicionales se mapean a `raw_data` JSONB segun `definition_scheme` del DataLayer\n\n"
+        "opcional: `captured_at`; columnas adicionales se mapean a `parameters` JSONB segun `definition_scheme` del DataLayer\n\n"
         "**Responde 202 Accepted** de inmediato con `header_id` y `celery_task_id`. "
         "Los puntos se crean de forma asíncrona; consultar el listado de puntos con "
         "`GET /api/v1/datalayers/points/?header=<header_id>` para verificar el resultado."
@@ -119,7 +119,7 @@ class DataLayerHeaderUpdateView(generics.UpdateAPIView):
             "datalayer":   drf_serializers.IntegerField(help_text="ID del DataLayer a aplicar"),
             "crop":        drf_serializers.IntegerField(help_text="ID del CropCatalog"),
             "import_date": drf_serializers.DateField(help_text="Fecha de captura YYYY-MM-DD"),
-            "csv_file":    drf_serializers.FileField(help_text="Archivo CSV con columnas lat, lon [, captured_at] + raw_data"),
+            "csv_file":    drf_serializers.FileField(help_text="Archivo CSV con columnas lat, lon [, captured_at] + parameters"),
         },
     ),
     responses={
@@ -198,14 +198,14 @@ class DataLayerHeaderImportView(APIView):
     description=(
         "Retorna los puntos de captura de muestras agricolas. Cada punto incluye:\n\n"
         "- `geom`: coordenadas WGS84 (EPSG:4326) — **Point** GeoJSON\n"
-        "- `raw_data`: objeto JSONB con los atributos medidos en el punto "
+        "- `parameters`: objeto JSONB con los atributos medidos en el punto "
         "(pH, C, N, NDVI, etc.) definidos por el `definition_scheme` del DataLayer asociado\n\n"
         "**Uso tipico para mapas de calor**: combinar `geom` (lat/lon) con el valor "
-        "del atributo deseado de `raw_data` como intensidad en el visor geoespacial. "
+        "del atributo deseado de `parameters` como intensidad en el visor geoespacial. "
         "La colorimetria se obtiene del `evaluation_scheme` del DataLayer filtrado.\n\n"
         "**Sin paginacion**: esta vista retorna todos los puntos del filtro activo "
         "(puede ser >60 000 registros). Siempre use al menos un filtro para acotar el resultado.\n\n"
-        "**Ejemplo de `raw_data`**:\n"
+        "**Ejemplo de `parameters`**:\n"
         "```json\n"
         "{\"pH\": 6.8, \"C\": 1.23, \"N\": 0.15, \"NDVI\": 0.74}\n"
         "```"
@@ -252,7 +252,7 @@ class DataLayerHeaderImportView(APIView):
             location=OpenApiParameter.QUERY,
             required=False,
             description=(
-                "Filtra puntos que contienen la clave JSONB indicada en `raw_data` "
+                "Filtra puntos que contienen la clave JSONB indicada en `parameters` "
                 "(ej: `?attribute=pH` retorna solo puntos que tienen la clave `pH`). "
                 "Util para descartar puntos con datos incompletos antes de renderizar el mapa de calor."
             ),
@@ -292,7 +292,7 @@ class DataLayerPointsListView(generics.ListAPIView):
 
         attribute = params.get("attribute")
         if attribute:
-            qs = qs.filter(raw_data__has_key=attribute)
+            qs = qs.filter(parameters__has_key=attribute)
 
         return qs
 
@@ -325,11 +325,11 @@ class DataLayerPointsDetailView(generics.RetrieveAPIView):
     summary="Exportar puntos a CSV (descarga)",
     description=(
         "Genera y descarga un archivo CSV con los puntos filtrados. "
-        "Las claves del JSONB `raw_data` se aplanan como columnas individuales "
+        "Las claves del JSONB `parameters` se aplanan como columnas individuales "
         "(ej: `pH`, `C`, `N`). Acepta los mismos filtros que `GET /api/v1/datalayers/points/`.\n\n"
         "**Nombre del archivo:** `{datalayer}_{plot}_{fecha}.csv`\n\n"
         "**Columnas fijas:** `lat`, `lon`, `captured_at`\n\n"
-        "**Columnas dinamicas:** una por cada clave presente en `raw_data` del conjunto filtrado."
+        "**Columnas dinamicas:** una por cada clave presente en `parameters` del conjunto filtrado."
     ),
     parameters=[
         OpenApiParameter(name="header",     type=OpenApiTypes.UUID, location=OpenApiParameter.QUERY, required=False),
@@ -372,7 +372,7 @@ class DataLayerPointsExportView(APIView):
 
         attribute = params.get("attribute")
         if attribute:
-            qs = qs.filter(raw_data__has_key=attribute)
+            qs = qs.filter(parameters__has_key=attribute)
 
         # Materializar el queryset una sola vez para poder iterar dos veces
         # (una para descubrir las claves JSONB, otra para escribir las filas)
@@ -383,7 +383,7 @@ class DataLayerPointsExportView(APIView):
         jsonb_keys = list(dict.fromkeys(
             key
             for point in points
-            for key in (point.raw_data or {}).keys()
+            for key in (point.parameters or {}).keys()
         ))
 
         # Construir nombre de archivo descriptivo
@@ -401,7 +401,7 @@ class DataLayerPointsExportView(APIView):
 
         for point in points:
             lon, lat = point.geom.coords  # GeoJSON: coords = (longitude, latitude)
-            raw = point.raw_data or {}
+            raw = point.parameters or {}
             writer.writerow(
                 [lat, lon, point.captured_at] + [raw.get(k, "") for k in jsonb_keys]
             )

@@ -20,7 +20,7 @@ def import_csv_to_datalayer(self, header_id, csv_path):
     Columnas esperadas en el CSV:
         - lat, lon       → geom (PointField WGS84). lon va primero en GIS.
         - captured_at    → timestamp (opcional)
-        - resto          → raw_data (JSONField, validado contra definition_scheme)
+        - resto          → parameters (JSONField, validado contra definition_scheme)
 
     Returns:
         dict: { status, header_id, created, errors }
@@ -63,12 +63,12 @@ def import_csv_to_datalayer(self, header_id, csv_path):
                 # b. captured_at (opcional; string vacío → None)
                 captured_at = row.pop("captured_at", None) or None
 
-                # c. El resto es raw_data
-                raw_data = row
+                # c. El resto es parameters
+                parameters = row
 
                 # d. Validar contra definition_scheme (alias resolution incluida)
                 try:
-                    validate_raw_data_against_scheme(raw_data, definition_scheme)
+                    validate_raw_data_against_scheme(parameters, definition_scheme)
                 except ValidationError as e:
                     errors.append(f"Fila {i}: {e.detail}")
                     continue
@@ -80,7 +80,7 @@ def import_csv_to_datalayer(self, header_id, csv_path):
                         plot_id=plot_id,                    # Explícito: bulk_create no ejecuta save()
                         geom=Point(lon, lat, srid=4326),   # lon primero (convención GIS x,y)
                         captured_at=captured_at,
-                        raw_data=raw_data,
+                        parameters=parameters,
                     )
                 )
 

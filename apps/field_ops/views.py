@@ -208,19 +208,19 @@ class GenerateReportView(ScopeFilterMixin, APIView):
         )
 
     def _build_summary(self, task):
-        """Agrega estadísticas numéricas de raw_data de todos los puntos de la tarea."""
+        """Agrega estadísticas numéricas de parameters de todos los puntos de la tarea."""
         from apps.datalayers.models import DataLayerHeader, DataLayerPoints
 
         header_ids = DataLayerHeader.objects.filter(task=task).values_list("id", flat=True)
-        raw_data_qs = DataLayerPoints.objects.filter(
+        parameters_qs = DataLayerPoints.objects.filter(
             header_id__in=header_ids
-        ).values_list("raw_data", flat=True)
+        ).values_list("parameters", flat=True)
 
         total = 0
         field_values: dict = {}
-        for raw_data in raw_data_qs:
+        for parameters in parameters_qs:
             total += 1
-            for key, val in raw_data.items():
+            for key, val in parameters.items():
                 try:
                     field_values.setdefault(key, []).append(float(val))
                 except (TypeError, ValueError):

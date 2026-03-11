@@ -90,16 +90,16 @@ def make_header(task=None, datalayer=None, crop=None, plot=None, import_date=Non
     )
 
 
-def make_point(header, geom=None, raw_data=None, plot_id=None):
+def make_point(header, geom=None, parameters=None, plot_id=None):
     """
     Crea un DataLayerPoints vía save() para activar la denormalización.
     Si plot_id no es None, lo asigna ANTES de save() para no ser sobreescrito.
     """
     if geom is None:
         geom = Point(-102.29, 21.88, srid=4326)
-    if raw_data is None:
-        raw_data = {}
-    point = DataLayerPoints(header=header, geom=geom, raw_data=raw_data)
+    if parameters is None:
+        parameters = {}
+    point = DataLayerPoints(header=header, geom=geom, parameters=parameters)
     if plot_id is not None:
         point.plot_id = plot_id
     point.save()
@@ -441,8 +441,8 @@ class DataLayerPointsAPITests(APITestCase):
         scheme = {"required": ["ph", "mo"], "aliases": {"ph": ["pH"]}}
         self.dl = make_datalayer("DL-001", definition_scheme=scheme)
         self.header = make_header(datalayer=self.dl, crop=self.crop, plot=self.plot)
-        make_point(header=self.header, raw_data={"ph": 6.5, "mo": 2.1})
-        make_point(header=self.header, raw_data={"ph": 7.0, "mo": 1.8})
+        make_point(header=self.header, parameters={"ph": 6.5, "mo": 2.1})
+        make_point(header=self.header, parameters={"ph": 7.0, "mo": 1.8})
 
     def test_list_retorna_200(self):
         do_login(self.client, "guest")
@@ -454,7 +454,7 @@ class DataLayerPointsAPITests(APITestCase):
         do_login(self.client, "guest")
         otro_dl = make_datalayer("DL-002")
         otro_header = make_header(datalayer=otro_dl, crop=self.crop)
-        make_point(header=otro_header, raw_data={"x": 1})
+        make_point(header=otro_header, parameters={"x": 1})
 
         url = reverse("datalayers:datalayerpoints-list")
         res = self.client.get(url, {"header": str(self.header.pk)})
@@ -462,25 +462,25 @@ class DataLayerPointsAPITests(APITestCase):
         self.assertEqual(len(res.data), 2)  # sin paginación — res.data es lista directa
 
     def test_technician_crea_punto_valido(self):
-        """raw_data que cumple el definition_scheme → 201 Created."""
+        """parameters que cumple el definition_scheme → 201 Created."""
         do_login(self.client, "tech")
         data = {
             "header": str(self.header.pk),
             "geom": {"type": "Point", "coordinates": [-102.29, 21.88]},
-            "raw_data": {"ph": 6.8, "mo": 2.5},
+            "parameters": {"ph": 6.8, "mo": 2.5},
         }
         res = self.client.post(
             reverse("datalayers:datalayerpoints-create"), data, format="json"
         )
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
 
-    def test_raw_data_invalido_retorna_400(self):
-        """raw_data que incumple el definition_scheme → 400 Bad Request."""
+    def test_parameters_invalido_retorna_400(self):
+        """parameters que incumple el definition_scheme → 400 Bad Request."""
         do_login(self.client, "tech")
         data = {
             "header": str(self.header.pk),
             "geom": {"type": "Point", "coordinates": [-102.29, 21.88]},
-            "raw_data": {"ph": 6.8},  # falta "mo"
+            "parameters": {"ph": 6.8},  # falta "mo"
         }
         res = self.client.post(
             reverse("datalayers:datalayerpoints-create"), data, format="json"
@@ -496,7 +496,7 @@ class DataLayerPointsExportViewTests(APITestCase):
     """
     Verifica el endpoint GET /api/v1/datalayers/points/export/
     - Devuelve Content-Type text/csv con status 200
-    - Las claves del JSONB raw_data aparecen como columnas en el header del CSV
+    - Las claves del JSONB parameters aparecen como columnas en el header del CSV
     - Un usuario no autenticado recibe 401
     """
 
@@ -511,8 +511,8 @@ class DataLayerPointsExportViewTests(APITestCase):
         self.dl    = make_datalayer("DL-EXP")
         self.header = make_header(datalayer=self.dl, crop=self.crop, plot=self.plot)
 
-        make_point(header=self.header, raw_data={"pH": 6.5, "C": 1.2})
-        make_point(header=self.header, raw_data={"pH": 7.0, "C": 0.9})
+        make_point(header=self.header, parameters={"pH": 6.5, "C": 1.2})
+        make_point(header=self.header, parameters={"pH": 7.0, "C": 0.9})
 
     def test_export_retorna_csv(self):
         """GET export/ con autenticacion → 200 y Content-Type text/csv."""
@@ -526,7 +526,7 @@ class DataLayerPointsExportViewTests(APITestCase):
         self.assertEqual(len(lines), 3)  # header + 2 puntos
 
     def test_export_columnas_jsonb_aplanadas(self):
-        """Las claves de raw_data aparecen como columnas en el CSV."""
+        """Las claves de parameters aparecen como columnas en el CSV."""
         do_login(self.client, "guest_exp")
         url = reverse("datalayers:datalayerpoints-export")
         res = self.client.get(url, {"header": str(self.header.pk)})
@@ -670,9 +670,9 @@ class GenerateReportViewTests(APITestCase):
             crop=self.crop,
         )
         # 3 puntos con valores conocidos para verificar las estadísticas
-        make_point(header=self.header, raw_data={"ph": 6.0, "mo": 2.0})
-        make_point(header=self.header, raw_data={"ph": 7.0, "mo": 3.0})
-        make_point(header=self.header, raw_data={"ph": 8.0, "mo": 4.0})
+        make_point(header=self.header, parameters={"ph": 6.0, "mo": 2.0})
+        make_point(header=self.header, parameters={"ph": 7.0, "mo": 3.0})
+        make_point(header=self.header, parameters={"ph": 8.0, "mo": 4.0})
 
         self.url = reverse("field_ops:task-generate-report", kwargs={"pk": self.task.pk})
 
@@ -752,7 +752,7 @@ class BulkPerformanceTests(TestCase):
                     21.88 + random.uniform(-0.1, 0.1),
                     srid=4326,
                 ),
-                raw_data={
+                parameters={
                     "ph": round(random.uniform(5.0, 8.5), 2),
                     "mo": round(random.uniform(1.0, 5.0), 2),
                 },
@@ -782,7 +782,7 @@ class EndToEndCSVImportTest(TestCase):
       3. Lee el CSV real de disco, renombra longitude→lon / latitude→lat,
          escribe a temp file y llama import_csv_to_datalayer() directamente
          (sin .delay() — Celery sincrónico para tests).
-      4. Verifica 440 DataLayerPoints creados con geom y raw_data correctos.
+      4. Verifica 440 DataLayerPoints creados con geom y parameters correctos.
 
     CSV de referencia:
       examples/csvs/Indices_vegetales_Grupo U_Churi_5_2025_IV_2025-10-20.csv
@@ -835,7 +835,7 @@ class EndToEndCSVImportTest(TestCase):
     def test_full_csv_import_pipeline(self):
         """
         Valida que import_csv_to_datalayer procese el CSV real de índices
-        vegetales, creando 440 DataLayerPoints con geom y raw_data correctos.
+        vegetales, creando 440 DataLayerPoints con geom y parameters correctos.
         """
         from apps.datalayers.tasks import import_csv_to_datalayer
 
@@ -876,16 +876,16 @@ class EndToEndCSVImportTest(TestCase):
 
         # 6. Spot-check: primer punto (id_obj="1")
         point = DataLayerPoints.objects.get(
-            header=self.header, raw_data__id_obj="1"
+            header=self.header, parameters__id_obj="1"
         )
         # Coordenadas: lon → geom.x, lat → geom.y (convención GIS)
         self.assertAlmostEqual(point.geom.x, -101.09306745, places=4)
         self.assertAlmostEqual(point.geom.y, 20.53422154, places=4)
-        # raw_data contiene columnas del CSV (excepto lat/lon, extraídos por la tarea)
-        self.assertIn("ndvi", point.raw_data)
-        self.assertIn("fecha_adquisicion", point.raw_data)
-        self.assertNotIn("lat", point.raw_data)
-        self.assertNotIn("lon", point.raw_data)
+        # parameters contiene columnas del CSV (excepto lat/lon, extraídos por la tarea)
+        self.assertIn("ndvi", point.parameters)
+        self.assertIn("fecha_adquisicion", point.parameters)
+        self.assertNotIn("lat", point.parameters)
+        self.assertNotIn("lon", point.parameters)
         # Denormalización: plot_id heredado del header (bulk_create no llama save())
         self.assertEqual(point.plot_id, self.plot.id)
 
