@@ -66,6 +66,108 @@ A partir del segundo arranque solo necesitas los pasos 6, 10 y 11 (Redis + Celer
 
 ---
 
+## Instalación de requisitos del sistema (Windows)
+
+### 1 — Python 3.12
+
+Descarga el instalador oficial desde [python.org/downloads](https://www.python.org/downloads/).
+
+Durante la instalación:
+- Marca **"Add Python to PATH"** antes de instalar
+- Elige "Customize installation" → marca **pip** y **py launcher**
+
+Verificar:
+```cmd
+python --version
+# Python 3.12.x
+```
+
+---
+
+### 2 — Git + Git Bash
+
+Descarga desde [git-scm.com/download/win](https://git-scm.com/download/win).
+
+Durante la instalación, selecciona:
+- **"Git Bash Here"** en el menú contextual
+- **"Use Git from the Windows Command Prompt"**
+- **"Checkout as-is, commit as-is"** (evita conversión de saltos de línea)
+
+Git Bash es la terminal recomendada para seguir los ejemplos de esta guía.
+
+---
+
+### 3 — PostgreSQL 14+ con PostGIS
+
+**Opción A — Instalador EDB (más sencillo):**
+
+1. Descarga desde [enterprisedb.com/downloads/postgres-postgresql-downloads](https://www.enterprisedb.com/downloads/postgres-postgresql-downloads) — elige versión 14 o superior para Windows x86-64
+2. Ejecuta el instalador — anota la contraseña del usuario `postgres`
+3. Al terminar, el instalador ofrece abrir **Stack Builder** → ábrelo
+4. En Stack Builder: selecciona tu instalación de PostgreSQL → **Spatial Extensions** → marca **PostGIS** → instalar
+
+**Verificar conexión:**
+```cmd
+psql -U postgres -c "SELECT version();"
+```
+
+**Verificar PostGIS disponible:**
+```sql
+-- Dentro de psql
+SELECT name, default_version FROM pg_available_extensions WHERE name = 'postgis';
+```
+
+---
+
+### 4 — Docker Desktop
+
+Requerido para levantar Redis como broker de Celery en desarrollo.
+
+1. Descarga desde [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/)
+2. Instala y reinicia el sistema si se solicita
+3. Abre Docker Desktop — espera a que el ícono en la barra de tareas quede en verde ("Engine running")
+
+Verificar:
+```cmd
+docker --version
+docker-compose --version
+```
+
+> Docker Desktop en Windows requiere **WSL 2** o **Hyper-V**. El instalador
+> lo configura automáticamente si WSL 2 está disponible (recomendado).
+
+---
+
+### 5 — Conda (para GDAL en Windows)
+
+GDAL no tiene binarios en PyPI para Windows — Conda los provee precompilados
+con todas las dependencias geoespaciales (GEOS, PROJ, GDAL).
+
+**Opción recomendada — Miniconda** (versión mínima sin paquetes extra):
+
+1. Descarga desde [docs.conda.io/en/latest/miniconda.html](https://docs.conda.io/en/latest/miniconda.html) — elige el instalador Windows 64-bit
+2. Durante la instalación, marca **"Add Miniconda to PATH"** (facilita el uso desde Git Bash)
+3. Reinicia la terminal
+
+Verificar:
+```bash
+conda --version
+# conda 24.x.x
+```
+
+Instalar GDAL (se hace una sola vez, no por proyecto):
+```bash
+conda install -c conda-forge gdal
+```
+
+Verificar GDAL:
+```bash
+gdalinfo --version
+# GDAL 3.x.x, released ...
+```
+
+---
+
 ## Instalación
 
 ```bash
