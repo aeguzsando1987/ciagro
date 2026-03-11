@@ -791,12 +791,11 @@ CIAgro_alpha/
 │   ├── field_ops/         # CropCatalog, PestCatalog, FieldTask, FieldTaskReport
 │   └── datalayers/        # DataLayer, DataLayerHeader, DataLayerPoints (JSONB+GIS)
 ├── logs/
-│   ├── development.md     # Bitácora de desarrollo por sesión
-│   └── dev_log.csv        # Log CSV de pasos completados
+│   ├── development.md     # Bitácora de desarrollo (Resumen de pasos de desarrollo completados)
+│   └── dev_log.csv        # Log CSV de pasos completados (Registros de desarrollo)
 ├── .context/
 │   ├── ciagro_valpha.dbml # Esquema de BD (fuente de verdad de modelos)
-│   ├── roadmap.md         # Fases y progreso
-│   └── master_prompt.md   # Decisiones de arquitectura
+│   └── roadmap.md         # Fases y progreso
 ├── docker-compose.yml     # Redis (dev) — full stack (en Fase de desarrollo, no implementado)
 ├── requirements.txt
 └── manage.py
