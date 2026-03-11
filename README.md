@@ -793,7 +793,7 @@ CIAgro_alpha/
 ├── logs/
 │   ├── development.md     # Bitácora de desarrollo (Resumen de pasos de desarrollo completados)
 │   └── dev_log.csv        # Log CSV de pasos completados (Registros de desarrollo)
-├── .context/
+├── .context/              # Util para examinar sistema con modelos de IA
 │   ├── ciagro_valpha.dbml # Esquema de BD (fuente de verdad de modelos)
 │   └── roadmap.md         # Fases y progreso
 ├── docker-compose.yml     # Redis (dev) — full stack (en Fase de desarrollo, no implementado)
